@@ -184,25 +184,38 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     });
 
     this.registerMarkdownPostProcessor((element, context) => {
-      for (const card of element.querySelectorAll(".task-kanban-inline-card[data-href], .task-kanban-inline-subtask[data-href]")) {
+      for (const card of element.querySelectorAll(".task-kanban-inline-card, .task-kanban-inline-subtask")) {
         card.addEventListener("click", (event) => {
           if (event.target.closest("button")) return;
           event.preventDefault();
           event.stopPropagation();
-          const href = card.getAttribute("data-href");
-          if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+          if (event.ctrlKey) {
+            const href = card.getAttribute("data-href");
+            if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+            return;
+          }
+          this.toggleInlineSubtasks(card);
         });
       }
       for (const button of element.querySelectorAll(".task-kanban-inline-subtasks-toggle")) {
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          const card = button.closest(".task-kanban-inline-card");
-          if (!card) return;
-          const expanded = !card.classList.contains("is-expanded");
-          card.classList.toggle("is-expanded", expanded);
-          button.setAttribute("aria-expanded", String(expanded));
-          button.textContent = expanded ? "⌄" : "›";
+          const card = button.closest(".task-kanban-inline-card, .task-kanban-inline-subtask");
+          if (card) this.toggleInlineSubtasks(card);
+        });
+      }
+      for (const button of element.querySelectorAll(".task-kanban-inline-hidden-toggle")) {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const callout = button.closest(".callout");
+          if (!callout) return;
+          const expanded = !callout.classList.contains("task-kanban-show-hidden-columns");
+          callout.classList.toggle("task-kanban-show-hidden-columns", expanded);
+          button.classList.toggle("is-active", expanded);
+          button.setAttribute("aria-pressed", String(expanded));
+          button.textContent = expanded ? "Скрыть доп." : "Доп.";
         });
       }
       for (const button of element.querySelectorAll(".task-kanban-inline-action[data-action]")) {
@@ -234,6 +247,20 @@ module.exports = class TaskKanbanPlugin extends Plugin {
 
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TASK_KANBAN);
+  }
+
+  toggleInlineSubtasks(card) {
+    const subtasks = Array.from(card.children)
+      .find((child) => child.classList?.contains("task-kanban-inline-subtasks"));
+    if (!subtasks) return;
+
+    const expanded = !card.classList.contains("is-expanded");
+    card.classList.toggle("is-expanded", expanded);
+    const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle");
+    if (button) {
+      button.setAttribute("aria-expanded", String(expanded));
+      button.textContent = expanded ? "⌄" : "›";
+    }
   }
 
   async activateView() {
@@ -378,7 +405,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       };
     });
 
-    const calloutActions = '<span class="task-kanban-inline-title-actions"><button class="task-kanban-inline-action" data-action="refresh">Обновить</button><button class="task-kanban-inline-action task-kanban-inline-action--danger" data-action="delete">Удалить</button></span>';
+    const calloutActions = '<span class="task-kanban-inline-title-actions"><button class="task-kanban-inline-action task-kanban-inline-hidden-toggle" type="button" aria-pressed="false" title="Показать отмененные и предложенные">Доп.</button><button class="task-kanban-inline-action" data-action="refresh">Обновить</button><button class="task-kanban-inline-action task-kanban-inline-action--danger" data-action="delete">Удалить</button></span>';
     const calloutLines = [
       `[!task-kanban]+ Task Kanban ${calloutActions}`,
       "",
