@@ -660,6 +660,11 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       }, true);
     }
 
+    this.registerDomEvent(document, "click", (event) => {
+      if (event.target.closest(".task-kanban-inline-filter")) return;
+      this.closeInlineFilters(element);
+    });
+
     element.addEventListener("click", async (event) => {
       const filterToggle = event.target.closest(".task-kanban-inline-filter-toggle");
       if (filterToggle) {
@@ -759,6 +764,13 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       const file = this.app.vault.getAbstractFileByPath(sourcePath);
       if (file instanceof TFile) await this.syncInlineKanbanDom(element, file);
     });
+  }
+
+  closeInlineFilters(element) {
+    for (const filter of element.querySelectorAll(".task-kanban-inline-filter.is-open")) {
+      filter.classList.remove("is-open");
+      filter.querySelector(".task-kanban-inline-filter-toggle")?.setAttribute("aria-expanded", "false");
+    }
   }
 
   async syncInlineKanbanDom(element, file) {
