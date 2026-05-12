@@ -25,13 +25,13 @@
   align-items: baseline;
   gap: 10px;
   min-width: 0;
-  font-size: 15px;
+  font-size: 1em;
   font-weight: 600;
 }
 
 .task-kanban-title small {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.86em;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -97,7 +97,7 @@
   gap: 8px;
   padding: 9px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
-  font-size: 12px;
+  font-size: 0.86em;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .04em;
@@ -131,7 +131,7 @@
 
 .task-kanban-card-body {
   padding: 9px 10px 6px;
-  font-size: 13px;
+  font-size: 0.94em;
   line-height: 1.45;
 }
 
@@ -145,7 +145,7 @@
   gap: 6px;
   padding: 0 10px 8px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: 0.84em;
   min-width: 0;
 }
 
@@ -173,7 +173,7 @@
   border-radius: 0;
   background: transparent;
   font-family: var(--font-monospace);
-  font-size: 12px;
+  font-size: 0.88em;
 }
 
 .task-kanban-status-button:last-child {
@@ -200,7 +200,7 @@
   padding: 14px 8px;
   color: var(--text-faint);
   text-align: center;
-  font-size: 12px;
+  font-size: 0.91em;
 }
 
 .markdown-rendered .task-kanban-inline-marker,
@@ -280,7 +280,7 @@
   background: var(--background-secondary);
   color: var(--text-normal);
   text-decoration: none;
-  font-size: 12px;
+  font-size: 0.92em;
   line-height: 1.35;
   cursor: pointer;
 }
@@ -290,7 +290,7 @@
   display: block;
   margin: 0 0 3px;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: 0.82em;
   line-height: 1.2;
 }
 
@@ -309,7 +309,7 @@
 .markdown-rendered .task-kanban-inline-empty,
 .cm-html-embed .task-kanban-inline-empty {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: 0.92em;
 }
 
 .markdown-rendered .callout:has(.task-kanban-inline-title-actions) .callout-title-inner,
@@ -324,7 +324,7 @@
 .markdown-rendered .task-kanban-inline-title-summary,
 .cm-html-embed .task-kanban-inline-title-summary {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.92em;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -349,7 +349,7 @@
   border-radius: 6px;
   background: var(--background-secondary);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.92em;
   cursor: pointer;
 }
 
