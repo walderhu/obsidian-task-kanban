@@ -217,23 +217,16 @@
   border-spacing: 0;
 }
 
-.markdown-rendered .callout.task-kanban-inline-collapsed:has(.task-kanban-inline-marker) .callout-content,
-.markdown-rendered .callout.task-kanban-inline-collapsed:has(.task-kanban-inline-marker) table,
-.cm-html-embed .callout.task-kanban-inline-collapsed:has(.task-kanban-inline-marker) .callout-content,
-.cm-html-embed .callout.task-kanban-inline-collapsed:has(.task-kanban-inline-marker) table {
+.markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) .callout-content,
+.markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) table,
+.markdown-rendered .callout[data-callout-fold="-"]:has(.task-kanban-inline-marker) .callout-content,
+.markdown-rendered .callout[data-callout-fold="-"]:has(.task-kanban-inline-marker) table {
   display: none !important;
   height: 0 !important;
   min-height: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-}
-
-.markdown-rendered .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker) .callout-fold,
-.markdown-rendered .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker) .collapse-indicator,
-.cm-html-embed .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker) .callout-fold,
-.cm-html-embed .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker) .collapse-indicator {
-  display: none !important;
 }
 
 .markdown-rendered .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker),

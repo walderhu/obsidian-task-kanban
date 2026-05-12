@@ -198,7 +198,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     this.registerMarkdownPostProcessor(async (element, context) => {
       const sourceFile = this.app.vault.getAbstractFileByPath(context.sourcePath);
       element.dataset.taskKanbanSourcePath = context.sourcePath;
-      this.prepareInlineKanbanCallout(element);
       if (sourceFile instanceof TFile) {
         this.trackInlineKanbanElement(sourceFile, element);
         await this.syncInlineKanbanDom(element, sourceFile);
@@ -640,53 +639,28 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     await this.app.vault.process(file, (content) => this.ensureTaskBlockIds(file, content));
   }
 
-  prepareInlineKanbanCallout(element) {
-    const callout = element.querySelector(".task-kanban-inline-marker")?.closest(".callout");
-    if (!callout) return;
-    callout.classList.remove("is-collapsible", "is-collapsed");
-    callout.removeAttribute("data-callout-fold");
-    const fold = callout.querySelector(".callout-fold, .collapse-indicator");
-    if (fold) fold.remove();
-    this.ensureInlineCollapseControl(element);
-  }
-
-  ensureInlineCollapseControl(element) {
-    const actions = element.querySelector(".task-kanban-inline-title-actions");
-    if (!actions || actions.querySelector(".task-kanban-inline-collapse-toggle")) return;
-    const button = document.createElement("button");
-    button.className = "task-kanban-inline-action task-kanban-inline-collapse-toggle";
-    button.type = "button";
-    button.setAttribute("aria-pressed", "false");
-    button.textContent = "Свернуть";
-    actions.append(button);
-  }
-
   bindInlineKanbanDelegates(element, sourcePath) {
     if (element.dataset.taskKanbanDelegatesBound === "true") return;
     element.dataset.taskKanbanDelegatesBound = "true";
 
-    for (const eventName of ["pointerdown", "mousedown", "mouseup"]) {
+    for (const eventName of ["pointerdown", "mousedown", "mouseup", "click"]) {
       element.addEventListener(eventName, (event) => {
-        if (event.target.closest(".task-kanban-inline-filter")) {
-          event.stopPropagation();
-        }
+        const filter = event.target.closest(".task-kanban-inline-filter");
+        if (!filter) return;
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        if (eventName !== "click") return;
+
+        const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
+        if (!toggle) return;
+        event.preventDefault();
+        const expanded = !filter.classList.contains("is-open");
+        filter.classList.toggle("is-open", expanded);
+        toggle.setAttribute("aria-expanded", String(expanded));
       }, true);
     }
 
     element.addEventListener("click", async (event) => {
-      const collapseToggle = event.target.closest(".task-kanban-inline-collapse-toggle");
-      if (collapseToggle) {
-        event.preventDefault();
-        event.stopPropagation();
-        const callout = collapseToggle.closest(".callout");
-        if (!callout) return;
-        const collapsed = !callout.classList.contains("task-kanban-inline-collapsed");
-        callout.classList.toggle("task-kanban-inline-collapsed", collapsed);
-        collapseToggle.setAttribute("aria-pressed", String(collapsed));
-        collapseToggle.textContent = collapsed ? "Развернуть" : "Свернуть";
-        return;
-      }
-
       const filterToggle = event.target.closest(".task-kanban-inline-filter-toggle");
       if (filterToggle) {
         event.preventDefault();
@@ -789,7 +763,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
 
   async syncInlineKanbanDom(element, file) {
     if (!element.querySelector(".task-kanban-inline-marker")) return;
-    this.prepareInlineKanbanCallout(element);
     const expandedBlockIds = new Set(
       Array.from(element.querySelectorAll(".task-kanban-inline-card.is-expanded, .task-kanban-inline-subtask.is-expanded"))
         .map((card) => this.getInlineBlockId(card))
@@ -1129,9 +1102,9 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       };
     });
 
-    const calloutActions = '<span class="task-kanban-inline-title-actions"><span class="task-kanban-inline-filter"><button class="task-kanban-inline-action task-kanban-inline-filter-toggle" type="button" aria-expanded="false">Фильтр</button><span class="task-kanban-inline-filter-menu"></span></span><button class="task-kanban-inline-action task-kanban-inline-hidden-toggle" type="button" aria-pressed="false" title="Показать отмененные и предложенные">Доп.</button><button class="task-kanban-inline-action" data-action="refresh">Обновить</button><button class="task-kanban-inline-action task-kanban-inline-action--danger" data-action="delete">Удалить</button><button class="task-kanban-inline-action task-kanban-inline-collapse-toggle" type="button" aria-pressed="false">Свернуть</button></span>';
+    const calloutActions = '<span class="task-kanban-inline-title-actions"><span class="task-kanban-inline-filter"><button class="task-kanban-inline-action task-kanban-inline-filter-toggle" type="button" aria-expanded="false">Фильтр</button><span class="task-kanban-inline-filter-menu"></span></span><button class="task-kanban-inline-action task-kanban-inline-hidden-toggle" type="button" aria-pressed="false" title="Показать отмененные и предложенные">Доп.</button><button class="task-kanban-inline-action" data-action="refresh">Обновить</button><button class="task-kanban-inline-action task-kanban-inline-action--danger" data-action="delete">Удалить</button></span>';
     const calloutLines = [
-      `[!task-kanban] Task Kanban ${calloutActions}`,
+      `[!task-kanban]+ Task Kanban ${calloutActions}`,
       "",
       `| ${columns.map((column) => column.title).join(" | ")} |`,
       `| ${columns.map(() => "---").join(" | ")} |`,
