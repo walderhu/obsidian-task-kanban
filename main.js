@@ -259,11 +259,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           event.preventDefault();
           event.stopPropagation();
           const subtask = button.closest(".task-kanban-inline-subtask");
-          if (event.ctrlKey) {
-            const blockId = this.getInlineBlockId(button) || this.getInlineBlockId(subtask);
-            if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, context.sourcePath, false);
-            return;
-          }
           await this.toggleInlineSubtaskStatus(subtask, context.sourcePath);
         });
       }
@@ -272,11 +267,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           if (event.target.closest("button")) return;
           event.preventDefault();
           event.stopPropagation();
-          if (event.ctrlKey) {
-            const blockId = this.getInlineBlockId(card);
-            if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, context.sourcePath, false);
-            return;
-          }
           if (card.classList.contains("task-kanban-inline-subtask")) {
             await this.toggleInlineSubtaskStatus(card, context.sourcePath);
             return;
@@ -711,11 +701,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (event.ctrlKey) {
-        const blockId = this.getInlineBlockId(subtask);
-        if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, sourcePath, false);
-        return;
-      }
       await this.toggleInlineSubtaskStatus(subtask, sourcePath);
     }, true);
 
@@ -760,11 +745,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
         event.preventDefault();
         event.stopPropagation();
         const subtask = statusButton.closest(".task-kanban-inline-subtask");
-        if (event.ctrlKey) {
-          const blockId = this.getInlineBlockId(statusButton) || this.getInlineBlockId(subtask);
-          if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, sourcePath, false);
-          return;
-        }
         await this.toggleInlineSubtaskStatus(subtask, sourcePath);
         return;
       }
@@ -783,11 +763,6 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       if (!card || !element.contains(card)) return;
       event.preventDefault();
       event.stopPropagation();
-      if (event.ctrlKey) {
-        const blockId = this.getInlineBlockId(card);
-        if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, sourcePath, false);
-        return;
-      }
       if (card.classList.contains("task-kanban-inline-subtask")) {
         await this.toggleInlineSubtaskStatus(card, sourcePath);
         return;
