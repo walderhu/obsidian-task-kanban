@@ -214,7 +214,6 @@
   width: 100%;
   max-width: 100%;
   overflow-x: auto;
-  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -251,23 +250,13 @@
   padding-top: 8px;
 }
 
-.markdown-rendered table:has(.task-kanban-inline-marker) thead,
-.markdown-rendered table:has(.task-kanban-inline-marker) tbody,
-.markdown-rendered table:has(.task-kanban-inline-marker) tr,
-.cm-html-embed table:has(.task-kanban-inline-marker) thead,
-.cm-html-embed table:has(.task-kanban-inline-marker) tbody,
-.cm-html-embed table:has(.task-kanban-inline-marker) tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-}
-
 .markdown-rendered table:has(.task-kanban-inline-marker) th,
 .markdown-rendered table:has(.task-kanban-inline-marker) td,
 .cm-html-embed table:has(.task-kanban-inline-marker) th,
 .cm-html-embed table:has(.task-kanban-inline-marker) td {
-  width: 20%;
-  min-width: 240px;
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
   vertical-align: top;
 }
 
@@ -340,7 +329,21 @@
 
 .markdown-rendered .task-kanban-inline-text,
 .cm-html-embed .task-kanban-inline-text {
+  display: -webkit-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.markdown-rendered .task-kanban-inline-card.is-text-expanded > .task-kanban-inline-main > .task-kanban-inline-text,
+.cm-html-embed .task-kanban-inline-card.is-text-expanded > .task-kanban-inline-main > .task-kanban-inline-text {
   display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
 }
 
 .markdown-rendered .task-kanban-inline-main,
@@ -348,6 +351,45 @@
   display: flex;
   align-items: flex-start;
   gap: 5px;
+}
+
+.markdown-rendered .task-kanban-inline-text-toggle,
+.cm-html-embed .task-kanban-inline-text-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  margin: 0 0 0 auto;
+  padding: 0;
+  flex: 0 0 auto;
+  opacity: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 0.9em;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.markdown-rendered .task-kanban-inline-text-toggle[hidden],
+.cm-html-embed .task-kanban-inline-text-toggle[hidden] {
+  display: none !important;
+}
+
+.markdown-rendered .task-kanban-inline-card:hover > .task-kanban-inline-main > .task-kanban-inline-text-toggle,
+.markdown-rendered .task-kanban-inline-card.is-text-expanded > .task-kanban-inline-main > .task-kanban-inline-text-toggle,
+.cm-html-embed .task-kanban-inline-card:hover > .task-kanban-inline-main > .task-kanban-inline-text-toggle,
+.cm-html-embed .task-kanban-inline-card.is-text-expanded > .task-kanban-inline-main > .task-kanban-inline-text-toggle {
+  opacity: 1;
+}
+
+.markdown-rendered .task-kanban-inline-text-toggle:hover,
+.cm-html-embed .task-kanban-inline-text-toggle:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
 }
 
 .markdown-rendered .task-kanban-inline-subtasks-toggle,

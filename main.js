@@ -313,7 +313,9 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
           if (!(file instanceof TFile)) return;
           if (action === "refresh") await this.refreshInlineKanbanView(file, element);
-          if (action === "delete") await this.deleteKanbanFromFile(file);
+          if (action === "delete" && window.confirm("Точно удалить Kanban?")) {
+            await this.deleteKanbanFromFile(file);
+          }
         });
       }
     });
@@ -676,6 +678,16 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     });
 
     element.addEventListener("click", async (event) => {
+      const textToggle = event.target.closest(".task-kanban-inline-text-toggle");
+      if (textToggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        const card = textToggle.closest(".task-kanban-inline-card");
+        if (!card) return;
+        this.toggleInlineCardText(card);
+        return;
+      }
+
       const expandToggle = event.target.closest(".task-kanban-inline-expand-toggle");
       if (expandToggle) {
         event.preventDefault();
@@ -736,6 +748,10 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       }
       if (card.classList.contains("task-kanban-inline-subtask")) {
         await this.toggleInlineSubtaskStatus(card, sourcePath);
+        return;
+      }
+      if (card.classList.contains("has-overflowing-text")) {
+        this.toggleInlineCardText(card);
         return;
       }
       this.toggleInlineSubtasks(card);
@@ -819,6 +835,43 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     this.updateInlineExpandToggle(element);
   }
 
+  toggleInlineCardText(card) {
+    if (!card.classList.contains("has-overflowing-text")) return;
+    const textToggle = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-text-toggle");
+    const expanded = !card.classList.contains("is-text-expanded");
+    card.classList.toggle("is-text-expanded", expanded);
+    if (textToggle) {
+      textToggle.setAttribute("aria-expanded", String(expanded));
+      textToggle.textContent = expanded ? "‹" : "›";
+      textToggle.setAttribute("title", expanded ? "Свернуть текст" : "Развернуть текст");
+    }
+  }
+
+  updateInlineTextOverflowControls(element) {
+    window.requestAnimationFrame(() => {
+      for (const card of element.querySelectorAll(".task-kanban-inline-card")) {
+        const text = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-text");
+        const toggle = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-text-toggle");
+        if (!text || !toggle) continue;
+        const wasExpanded = card.classList.contains("is-text-expanded");
+        if (wasExpanded) card.classList.remove("is-text-expanded");
+        toggle.hidden = true;
+        toggle.setAttribute("aria-hidden", "true");
+        const lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;
+        const overflowing = text.scrollHeight > lineHeight * 3 + 2;
+        card.classList.toggle("has-overflowing-text", overflowing);
+        toggle.hidden = !overflowing;
+        toggle.setAttribute("aria-hidden", String(!overflowing));
+        if (!overflowing) {
+          toggle.setAttribute("aria-expanded", "false");
+          card.classList.remove("is-text-expanded");
+        } else if (wasExpanded) {
+          card.classList.add("is-text-expanded");
+        }
+      }
+    });
+  }
+
   updateInlineExpandToggle(element) {
     const button = element.querySelector(".task-kanban-inline-expand-toggle");
     if (!button) return;
@@ -880,6 +933,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
         : "<span class=\"task-kanban-inline-empty\">Пусто</span>";
     }
     this.restoreInlineExpandedState(element, expandedBlockIds);
+    this.updateInlineTextOverflowControls(element);
 
     const table = element.querySelector("table:has(.task-kanban-inline-marker)");
     if (!table) return;
@@ -1244,7 +1298,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     const toggle = task.subtasks?.length
       ? `<button class="task-kanban-inline-subtasks-toggle" type="button" aria-expanded="false" title="Показать подзадачи">›</button>`
       : "";
-    return `<div class="task-kanban-inline-card"${attrs}>${heading}<span class="task-kanban-inline-main">${toggle}<span class="task-kanban-inline-text">${this.escapeTableText(task.text)}</span></span>${subtasks}</div>`;
+    const textToggle = `<button class="task-kanban-inline-text-toggle" type="button" aria-expanded="false" aria-hidden="true" title="Развернуть текст" hidden>›</button>`;
+    return `<div class="task-kanban-inline-card"${attrs}>${heading}<span class="task-kanban-inline-main">${toggle}<span class="task-kanban-inline-text">${this.escapeTableText(task.text)}</span>${textToggle}</span>${subtasks}</div>`;
   }
 
   formatInlineSubtasks(subtasks) {
