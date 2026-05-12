@@ -15,6 +15,9 @@ const STATUSES = [
 const STATUS_BY_MARKER = new Map(
   STATUSES.flatMap((status) => status.aliases.map((alias) => [alias, status]))
 );
+const STATUS_BY_KEY = new Map(STATUSES.map((status) => [status.key, status]));
+const STATUS_BY_ICON = new Map(STATUSES.map((status) => [status.icon, status]));
+const TASK_KANBAN_DRAG_MIME = "application/x-task-kanban-block-id";
 
 const TASK_LINE_RE = /^(\s*)[-*]\s+\[([^\]]*)\]\s+(.*)$/;
 const BLOCK_ID_RE = /\s+\^([A-Za-z0-9-]+)\s*$/;
@@ -184,6 +187,65 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     });
 
     this.registerMarkdownPostProcessor((element, context) => {
+      for (const column of element.querySelectorAll(".task-kanban-inline-column")) {
+        const columnStatus = this.getInlineColumnStatus(column);
+        if (columnStatus && !column.hasAttribute("data-status-key")) {
+          column.setAttribute("data-status-key", columnStatus.key);
+        }
+        column.addEventListener("dragover", (event) => {
+          if (!Array.from(event.dataTransfer?.types || []).includes(TASK_KANBAN_DRAG_MIME)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          column.classList.add("is-drag-over");
+        });
+        column.addEventListener("dragleave", (event) => {
+          if (!column.contains(event.relatedTarget)) column.classList.remove("is-drag-over");
+        });
+        column.addEventListener("drop", async (event) => {
+          const blockId = event.dataTransfer?.getData(TASK_KANBAN_DRAG_MIME);
+          const status = this.getInlineColumnStatus(column);
+          if (!blockId || !status) return;
+          event.preventDefault();
+          event.stopPropagation();
+          column.classList.remove("is-drag-over");
+          const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
+          if (file instanceof TFile) await this.setInlineTaskStatus(file, blockId, status, true);
+        });
+      }
+      for (const card of element.querySelectorAll(".task-kanban-inline-card")) {
+        if (this.getInlineBlockId(card)) card.setAttribute("draggable", "true");
+        card.addEventListener("dragstart", (event) => {
+          if (event.target.closest(".task-kanban-inline-subtask")) {
+            event.preventDefault();
+            return;
+          }
+          const blockId = this.getInlineBlockId(card);
+          if (!blockId || !event.dataTransfer) return;
+          event.dataTransfer.setData(TASK_KANBAN_DRAG_MIME, blockId);
+          event.dataTransfer.effectAllowed = "move";
+          card.classList.add("is-dragging");
+        });
+        card.addEventListener("dragend", () => {
+          card.classList.remove("is-dragging");
+          for (const column of element.querySelectorAll(".task-kanban-inline-column.is-drag-over")) {
+            column.classList.remove("is-drag-over");
+          }
+        });
+      }
+      for (const button of element.querySelectorAll(".task-kanban-inline-subtask-status")) {
+        button.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const subtask = button.closest(".task-kanban-inline-subtask");
+          const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
+          const status = STATUS_BY_KEY.get(button.getAttribute("data-status-key")) || STATUS_BY_ICON.get(button.textContent.trim());
+          const blockId = this.getInlineBlockId(button) || this.getInlineBlockId(subtask);
+          if (!(file instanceof TFile) || !status || !blockId) return;
+          const nextStatus = this.getNextStatus(status);
+          await this.setInlineTaskStatus(file, blockId, nextStatus, false, false);
+          this.updateInlineStatusButton(button, nextStatus);
+        });
+      }
       for (const card of element.querySelectorAll(".task-kanban-inline-card, .task-kanban-inline-subtask")) {
         card.addEventListener("click", (event) => {
           if (event.target.closest("button")) return;
@@ -261,6 +323,94 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       button.setAttribute("aria-expanded", String(expanded));
       button.textContent = expanded ? "⌄" : "›";
     }
+  }
+
+  getNextStatus(status) {
+    const index = STATUSES.indexOf(status);
+    return STATUSES[(index + 1) % STATUSES.length];
+  }
+
+  updateInlineStatusButton(button, status) {
+    button.setAttribute("data-status-key", status.key);
+    button.setAttribute("title", status.title);
+    button.textContent = status.icon;
+  }
+
+  getInlineColumnStatus(column) {
+    const status = STATUS_BY_KEY.get(column?.getAttribute("data-status-key"));
+    if (status) return status;
+    const cell = column?.closest("td, th");
+    if (!cell || typeof cell.cellIndex !== "number") return null;
+    return STATUSES[cell.cellIndex] || null;
+  }
+
+  getInlineBlockId(element) {
+    const blockId = element?.getAttribute("data-block-id");
+    if (blockId) return blockId;
+    const href = element?.getAttribute("data-href") || "";
+    return href.match(/^#\^(.+)$/)?.[1] || "";
+  }
+
+  async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban = true) {
+    await this.app.vault.process(file, (content) => {
+      const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
+      const lines = contentWithBlockIds.split(/\r?\n/);
+      const changed = this.updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks);
+      if (!changed) return contentWithBlockIds;
+
+      const nextContent = lines.join("\n");
+      if (!rebuildKanban) return nextContent;
+      const tasks = this.scanTasksInContent(file, nextContent);
+      const block = this.buildKanbanBlock(file, tasks);
+      return this.replaceOrInsertKanbanBlock(nextContent, block);
+    });
+  }
+
+  updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks) {
+    let startIndex = -1;
+    let startIndent = 0;
+    let insideGeneratedKanban = false;
+
+    for (let index = 0; index < lines.length; index++) {
+      const raw = lines[index];
+      if (raw.trim() === KANBAN_START) {
+        insideGeneratedKanban = true;
+        continue;
+      }
+      if (raw.trim() === KANBAN_END) {
+        insideGeneratedKanban = false;
+        continue;
+      }
+      if (insideGeneratedKanban) continue;
+
+      const taskMatch = raw.match(TASK_LINE_RE);
+      if (!taskMatch) continue;
+      const currentBlockId = taskMatch[3].match(BLOCK_ID_RE)?.[1];
+      if (currentBlockId !== blockId) continue;
+      startIndex = index;
+      startIndent = this.getIndentLevel(taskMatch[1] || "");
+      break;
+    }
+
+    if (startIndex < 0) return false;
+
+    let changed = false;
+    for (let index = startIndex; index < lines.length; index++) {
+      const taskMatch = lines[index].match(TASK_LINE_RE);
+      if (!taskMatch) {
+        if (index === startIndex) break;
+        continue;
+      }
+      const indentLevel = this.getIndentLevel(taskMatch[1] || "");
+      if (index > startIndex && (!includeSubtasks || indentLevel <= startIndent)) break;
+      const nextLine = lines[index].replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
+      if (nextLine !== lines[index]) {
+        lines[index] = nextLine;
+        changed = true;
+      }
+    }
+
+    return changed;
   }
 
   async activateView() {
@@ -376,14 +526,14 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     await this.insertKanbanIntoFile(file);
   }
 
-  async insertKanbanIntoFile(file) {
+  async insertKanbanIntoFile(file, showNotice = true) {
     await this.app.vault.process(file, (content) => {
       const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
       const tasks = this.scanTasksInContent(file, contentWithBlockIds);
       const block = this.buildKanbanBlock(file, tasks);
       return this.replaceOrInsertKanbanBlock(contentWithBlockIds, block);
     });
-    new Notice("Kanban обновлен");
+    if (showNotice) new Notice("Kanban обновлен");
   }
 
   async deleteKanbanFromFile(file) {
@@ -398,7 +548,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       const content = items.length
         ? items.map((task) => this.formatKanbanCellItem(task)).join("")
         : "<span class=\"task-kanban-inline-empty\">Пусто</span>";
-      const body = `${marker}<div class="task-kanban-inline-column">${content}</div>`;
+      const body = `${marker}<div class="task-kanban-inline-column" data-status-key="${this.escapeAttribute(status.key)}">${content}</div>`;
       return {
         title: `${status.icon} ${status.title} (${items.length})`,
         body
@@ -428,7 +578,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       ? `<span class="task-kanban-inline-heading">${this.escapeTableText(task.heading)}</span>`
       : "";
     const attrs = task.blockId
-      ? ` data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0"`
+      ? ` data-block-id="${this.escapeAttribute(task.blockId)}" data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0" draggable="true"`
       : "";
     const subtasks = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
     const toggle = task.subtasks?.length
@@ -440,10 +590,13 @@ module.exports = class TaskKanbanPlugin extends Plugin {
   formatInlineSubtasks(subtasks) {
     const items = subtasks.map((task) => {
       const attrs = task.blockId
-        ? ` data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0"`
+        ? ` data-block-id="${this.escapeAttribute(task.blockId)}" data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0"`
         : "";
       const children = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
-      return `<div class="task-kanban-inline-subtask"${attrs}><span class="task-kanban-inline-subtask-status">${this.escapeTableText(task.status.icon)}</span><span class="task-kanban-inline-subtask-text">${this.escapeTableText(task.text)}</span>${children}</div>`;
+      const status = task.blockId
+        ? `<button class="task-kanban-inline-subtask-status" type="button" data-block-id="${this.escapeAttribute(task.blockId)}" data-status-key="${this.escapeAttribute(task.status.key)}" title="${this.escapeAttribute(task.status.title)}">${this.escapeTableText(task.status.icon)}</button>`
+        : `<span class="task-kanban-inline-subtask-status">${this.escapeTableText(task.status.icon)}</span>`;
+      return `<div class="task-kanban-inline-subtask"${attrs}>${status}<span class="task-kanban-inline-subtask-text">${this.escapeTableText(task.text)}</span>${children}</div>`;
     }).join("");
     return `<div class="task-kanban-inline-subtasks">${items}</div>`;
   }
