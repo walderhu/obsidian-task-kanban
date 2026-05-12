@@ -1,4 +1,4 @@
-const { ItemView, MarkdownRenderer, Notice, Plugin, TFile } = require("obsidian");
+const { ItemView, MarkdownRenderer, MarkdownView, Notice, Plugin, TFile } = require("obsidian");
 
 const VIEW_TYPE_TASK_KANBAN = "task-kanban-view";
 const KANBAN_START = "<!-- task-kanban:start -->";
@@ -17,7 +17,11 @@ const STATUS_BY_MARKER = new Map(
 );
 const STATUS_BY_KEY = new Map(STATUSES.map((status) => [status.key, status]));
 const STATUS_BY_ICON = new Map(STATUSES.map((status) => [status.icon, status]));
+const SUBTASK_STATUS_CYCLE = ["open", "progress", "done"].map((key) => STATUS_BY_KEY.get(key));
 const TASK_KANBAN_DRAG_MIME = "application/x-task-kanban-block-id";
+const INLINE_KANBAN_REFRESH_DELAY = 1800;
+const INLINE_KANBAN_EDITOR_REFRESH_DELAY = 650;
+const INLINE_KANBAN_CHECKBOX_REFRESH_DELAY = 120;
 
 const TASK_LINE_RE = /^(\s*)[-*]\s+\[([^\]]*)\]\s+(.*)$/;
 const BLOCK_ID_RE = /\s+\^([A-Za-z0-9-]+)\s*$/;
@@ -170,6 +174,11 @@ class TaskKanbanView extends ItemView {
 
 module.exports = class TaskKanbanPlugin extends Plugin {
   async onload() {
+    this.inlineKanbanRefreshTimers = new Map();
+    this.inlineKanbanRefreshInProgress = new Set();
+    this.inlineKanbanRenderedElements = new Map();
+    this.inlineKanbanExpandedBlockIds = new Map();
+
     this.registerView(VIEW_TYPE_TASK_KANBAN, (leaf) => new TaskKanbanView(leaf, this));
 
     this.addRibbonIcon("layout-dashboard", "Task Kanban", () => this.activateView());
@@ -186,7 +195,16 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       editorCallback: () => this.insertKanbanIntoCurrentFile()
     });
 
-    this.registerMarkdownPostProcessor((element, context) => {
+    this.registerMarkdownPostProcessor(async (element, context) => {
+      const sourceFile = this.app.vault.getAbstractFileByPath(context.sourcePath);
+      element.dataset.taskKanbanSourcePath = context.sourcePath;
+      this.prepareInlineKanbanCallout(element);
+      if (sourceFile instanceof TFile) {
+        this.trackInlineKanbanElement(sourceFile, element);
+        await this.syncInlineKanbanDom(element, sourceFile);
+        this.bindInlineKanbanDelegates(element, context.sourcePath);
+      }
+
       for (const column of element.querySelectorAll(".task-kanban-inline-column")) {
         const columnStatus = this.getInlineColumnStatus(column);
         if (columnStatus && !column.hasAttribute("data-status-key")) {
@@ -209,7 +227,10 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           event.stopPropagation();
           column.classList.remove("is-drag-over");
           const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
-          if (file instanceof TFile) await this.setInlineTaskStatus(file, blockId, status, true);
+          if (file instanceof TFile) {
+            await this.setInlineTaskStatus(file, blockId, status, true, false);
+            this.scheduleInlineKanbanRefresh(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
+          }
         });
       }
       for (const card of element.querySelectorAll(".task-kanban-inline-card")) {
@@ -237,23 +258,26 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           event.preventDefault();
           event.stopPropagation();
           const subtask = button.closest(".task-kanban-inline-subtask");
-          const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
-          const status = STATUS_BY_KEY.get(button.getAttribute("data-status-key")) || STATUS_BY_ICON.get(button.textContent.trim());
-          const blockId = this.getInlineBlockId(button) || this.getInlineBlockId(subtask);
-          if (!(file instanceof TFile) || !status || !blockId) return;
-          const nextStatus = this.getNextStatus(status);
-          await this.setInlineTaskStatus(file, blockId, nextStatus, false, false);
-          this.updateInlineStatusButton(button, nextStatus);
+          if (event.ctrlKey) {
+            const href = button.getAttribute("data-href") || subtask?.getAttribute("data-href");
+            if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+            return;
+          }
+          await this.toggleInlineSubtaskStatus(subtask, context.sourcePath);
         });
       }
       for (const card of element.querySelectorAll(".task-kanban-inline-card, .task-kanban-inline-subtask")) {
-        card.addEventListener("click", (event) => {
+        card.addEventListener("click", async (event) => {
           if (event.target.closest("button")) return;
           event.preventDefault();
           event.stopPropagation();
           if (event.ctrlKey) {
             const href = card.getAttribute("data-href");
             if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+            return;
+          }
+          if (card.classList.contains("task-kanban-inline-subtask")) {
+            await this.toggleInlineSubtaskStatus(card, context.sourcePath);
             return;
           }
           this.toggleInlineSubtasks(card);
@@ -287,15 +311,34 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           const action = button.getAttribute("data-action");
           const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
           if (!(file instanceof TFile)) return;
-          if (action === "refresh") await this.insertKanbanIntoFile(file);
+          if (action === "refresh") await this.refreshInlineKanbanView(file, element);
           if (action === "delete") await this.deleteKanbanFromFile(file);
         });
       }
     });
 
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (!(file instanceof TFile) || file.extension !== "md") return;
+      this.handleMarkdownTaskStateChanged(file);
+    }));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => {
+      this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_EDITOR_REFRESH_DELAY);
+    }));
+    this.registerEvent(this.app.workspace.on("editor-change", (_editor, info) => {
+      const file = info?.file;
+      this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_EDITOR_REFRESH_DELAY);
+    }));
+    this.registerDomEvent(document, "click", (event) => {
+      this.handleEditorCheckboxEvent(event);
+    }, true);
+    this.registerDomEvent(document, "change", (event) => {
+      this.handleEditorCheckboxEvent(event);
+    }, true);
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       this.refreshOpenViews();
+      const file = this.app.workspace.getActiveFile();
+      if (file instanceof TFile && file.extension === "md") {
+        this.scheduleInlineKanbanRefresh(file, 0);
+      }
     }));
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (!(file instanceof TFile) || file.extension !== "md") return;
@@ -308,6 +351,13 @@ module.exports = class TaskKanbanPlugin extends Plugin {
   }
 
   onunload() {
+    for (const timer of this.inlineKanbanRefreshTimers?.values?.() || []) {
+      window.clearTimeout(timer);
+    }
+    this.inlineKanbanRefreshTimers?.clear?.();
+    this.inlineKanbanRefreshInProgress?.clear?.();
+    this.inlineKanbanRenderedElements?.clear?.();
+    this.inlineKanbanExpandedBlockIds?.clear?.();
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TASK_KANBAN);
   }
 
@@ -318,6 +368,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
 
     const expanded = !card.classList.contains("is-expanded");
     card.classList.toggle("is-expanded", expanded);
+    this.rememberInlineExpandedState(card, expanded);
     const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle");
     if (button) {
       button.setAttribute("aria-expanded", String(expanded));
@@ -325,9 +376,43 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     }
   }
 
+  rememberInlineExpandedState(card, expanded) {
+    const blockId = this.getInlineBlockId(card);
+    const sourcePath = card.closest("[data-task-kanban-source-path]")?.dataset?.taskKanbanSourcePath;
+    if (!blockId || !sourcePath) return;
+    let expandedBlockIds = this.inlineKanbanExpandedBlockIds.get(sourcePath);
+    if (!expandedBlockIds) {
+      expandedBlockIds = new Set();
+      this.inlineKanbanExpandedBlockIds.set(sourcePath, expandedBlockIds);
+    }
+    if (expanded) {
+      expandedBlockIds.add(blockId);
+    } else {
+      expandedBlockIds.delete(blockId);
+    }
+  }
+
   getNextStatus(status) {
     const index = STATUSES.indexOf(status);
     return STATUSES[(index + 1) % STATUSES.length];
+  }
+
+  getNextSubtaskStatus(status) {
+    const index = SUBTASK_STATUS_CYCLE.indexOf(status);
+    if (index < 0) return SUBTASK_STATUS_CYCLE[0];
+    return SUBTASK_STATUS_CYCLE[(index + 1) % SUBTASK_STATUS_CYCLE.length];
+  }
+
+  async toggleInlineSubtaskStatus(subtask, sourcePath) {
+    const button = subtask?.querySelector(":scope > .task-kanban-inline-subtask-status");
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    const status = STATUS_BY_KEY.get(button?.getAttribute("data-status-key")) || STATUS_BY_ICON.get(button?.textContent.trim());
+    const blockId = this.getInlineBlockId(button) || this.getInlineBlockId(subtask);
+    if (!(file instanceof TFile) || !status || !blockId) return;
+    const nextStatus = this.getNextSubtaskStatus(status);
+    await this.setInlineTaskStatus(file, blockId, nextStatus, false, false);
+    this.updateInlineStatusButton(button, nextStatus);
+    this.scheduleInlineKanbanRefresh(file, INLINE_KANBAN_EDITOR_REFRESH_DELAY);
   }
 
   updateInlineStatusButton(button, status) {
@@ -351,7 +436,13 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     return href.match(/^#\^(.+)$/)?.[1] || "";
   }
 
-  async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban = true) {
+  async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban = false) {
+    const openView = this.findOpenMarkdownView(file);
+    if (openView?.editor?.getValue && openView.editor.replaceRange) {
+      const changed = this.updateTaskStatusInEditor(file, openView.editor, blockId, status, includeSubtasks);
+      if (changed) return;
+    }
+
     await this.app.vault.process(file, (content) => {
       const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
       const lines = contentWithBlockIds.split(/\r?\n/);
@@ -364,6 +455,32 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       const block = this.buildKanbanBlock(file, tasks);
       return this.replaceOrInsertKanbanBlock(nextContent, block);
     });
+  }
+
+  updateTaskStatusInEditor(file, editor, blockId, status, includeSubtasks) {
+    const content = editor.getValue();
+    const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
+    const lines = contentWithBlockIds.split(/\r?\n/);
+    const originalLines = content.split(/\r?\n/);
+    const changed = this.updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks);
+    if (!changed) return false;
+
+    const state = {
+      editor,
+      cursor: editor.getCursor(),
+      scrollInfo: editor.getScrollInfo?.()
+    };
+
+    for (let index = lines.length - 1; index >= 0; index--) {
+      if (lines[index] === originalLines[index]) continue;
+      editor.replaceRange(
+        lines[index],
+        { line: index, ch: 0 },
+        { line: index, ch: (originalLines[index] || "").length }
+      );
+    }
+    this.restoreActiveEditorState(state);
+    return true;
   }
 
   updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks) {
@@ -430,6 +547,456 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     }
   }
 
+  handleMarkdownFileChanged(file, delay = INLINE_KANBAN_REFRESH_DELAY) {
+    if (!(file instanceof TFile) || file.extension !== "md") return;
+    this.refreshOpenViews();
+    this.scheduleInlineKanbanRefresh(file, delay);
+  }
+
+  handleMarkdownTaskStateChanged(file, delay = INLINE_KANBAN_CHECKBOX_REFRESH_DELAY) {
+    if (file instanceof TFile && file.extension === "md") {
+      this.handleMarkdownFileChanged(file, delay);
+    } else {
+      this.refreshOpenViews();
+    }
+
+    for (const path of this.inlineKanbanRenderedElements?.keys?.() || []) {
+      const kanbanFile = this.app.vault.getAbstractFileByPath(path);
+      if (kanbanFile instanceof TFile && kanbanFile.extension === "md" && kanbanFile.path !== file?.path) {
+        this.scheduleInlineKanbanRefresh(kanbanFile, delay);
+      }
+    }
+  }
+
+  handleEditorCheckboxEvent(event) {
+    if (!this.isMarkdownCheckboxEventTarget(event.target)) return;
+    const file = this.app.workspace.getActiveFile();
+    this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
+    window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), INLINE_KANBAN_EDITOR_REFRESH_DELAY);
+  }
+
+  isMarkdownCheckboxEventTarget(target) {
+    const element = target instanceof Element ? target : null;
+    if (!element) return false;
+    if (element.closest(".task-kanban-inline-card, .task-kanban-inline-subtask, .task-kanban-inline-action")) return false;
+    if (element.closest(
+      "input[type='checkbox'], .task-list-item-checkbox, .cm-formatting-task, .cm-task-marker"
+    )) return true;
+
+    const taskLine = element.closest(".HyperMD-task-line, .task-list-item, .cm-line");
+    return Boolean(taskLine?.textContent?.match(/[-*]\s+\[[^\]]*\]/));
+  }
+
+  trackInlineKanbanElement(file, element) {
+    if (!element.querySelector(".task-kanban-inline-marker")) return;
+    let elements = this.inlineKanbanRenderedElements.get(file.path);
+    if (!elements) {
+      elements = new Set();
+      this.inlineKanbanRenderedElements.set(file.path, elements);
+    }
+    elements.add(element);
+  }
+
+  async refreshRenderedInlineKanbans(file) {
+    const elements = this.inlineKanbanRenderedElements.get(file.path);
+    if (!elements?.size) return;
+    for (const element of Array.from(elements)) {
+      if (!element.isConnected) {
+        elements.delete(element);
+        continue;
+      }
+      await this.syncInlineKanbanDom(element, file);
+    }
+  }
+
+  async refreshInlineKanbanView(file, element = null) {
+    if (!(file instanceof TFile) || file.extension !== "md") return;
+    await this.ensureTaskBlockIdsInFile(file);
+    this.refreshOpenViews();
+
+    if (element?.isConnected && element.querySelector(".task-kanban-inline-marker")) {
+      await this.syncInlineKanbanDom(element, file);
+    }
+
+    await this.refreshRenderedInlineKanbans(file);
+  }
+
+  async ensureTaskBlockIdsInFile(file) {
+    const openView = this.findOpenMarkdownView(file);
+    if (openView?.editor?.getValue && openView.editor.setValue) {
+      const content = openView.editor.getValue();
+      const nextContent = this.ensureTaskBlockIds(file, content);
+      if (nextContent === content) return;
+      const state = {
+        editor: openView.editor,
+        cursor: openView.editor.getCursor(),
+        scrollInfo: openView.editor.getScrollInfo?.()
+      };
+      openView.editor.setValue(nextContent);
+      this.restoreActiveEditorState(state);
+      return;
+    }
+
+    await this.app.vault.process(file, (content) => this.ensureTaskBlockIds(file, content));
+  }
+
+  prepareInlineKanbanCallout(element) {
+    const callout = element.querySelector(".task-kanban-inline-marker")?.closest(".callout");
+    if (!callout) return;
+    callout.classList.remove("is-collapsible", "is-collapsed");
+    callout.removeAttribute("data-callout-fold");
+    const fold = callout.querySelector(".callout-fold, .collapse-indicator");
+    if (fold) fold.remove();
+    this.ensureInlineCollapseControl(element);
+  }
+
+  ensureInlineCollapseControl(element) {
+    const actions = element.querySelector(".task-kanban-inline-title-actions");
+    if (!actions || actions.querySelector(".task-kanban-inline-collapse-toggle")) return;
+    const button = document.createElement("button");
+    button.className = "task-kanban-inline-action task-kanban-inline-collapse-toggle";
+    button.type = "button";
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = "Свернуть";
+    actions.append(button);
+  }
+
+  bindInlineKanbanDelegates(element, sourcePath) {
+    if (element.dataset.taskKanbanDelegatesBound === "true") return;
+    element.dataset.taskKanbanDelegatesBound = "true";
+
+    for (const eventName of ["pointerdown", "mousedown", "mouseup"]) {
+      element.addEventListener(eventName, (event) => {
+        if (event.target.closest(".task-kanban-inline-filter")) {
+          event.stopPropagation();
+        }
+      }, true);
+    }
+
+    element.addEventListener("click", async (event) => {
+      const collapseToggle = event.target.closest(".task-kanban-inline-collapse-toggle");
+      if (collapseToggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        const callout = collapseToggle.closest(".callout");
+        if (!callout) return;
+        const collapsed = !callout.classList.contains("task-kanban-inline-collapsed");
+        callout.classList.toggle("task-kanban-inline-collapsed", collapsed);
+        collapseToggle.setAttribute("aria-pressed", String(collapsed));
+        collapseToggle.textContent = collapsed ? "Развернуть" : "Свернуть";
+        return;
+      }
+
+      const filterToggle = event.target.closest(".task-kanban-inline-filter-toggle");
+      if (filterToggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        const filter = filterToggle.closest(".task-kanban-inline-filter");
+        const expanded = !filter?.classList.contains("is-open");
+        filter?.classList.toggle("is-open", expanded);
+        filterToggle.setAttribute("aria-expanded", String(expanded));
+        return;
+      }
+
+      if (event.target.closest(".task-kanban-inline-filter-menu")) {
+        event.stopPropagation();
+        return;
+      }
+
+      const statusButton = event.target.closest(".task-kanban-inline-subtask-status");
+      if (statusButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const subtask = statusButton.closest(".task-kanban-inline-subtask");
+        if (event.ctrlKey) {
+          const href = statusButton.getAttribute("data-href") || subtask?.getAttribute("data-href");
+          if (href) this.app.workspace.openLinkText(href, sourcePath, false);
+          return;
+        }
+        await this.toggleInlineSubtaskStatus(subtask, sourcePath);
+        return;
+      }
+
+      const toggleButton = event.target.closest(".task-kanban-inline-subtasks-toggle");
+      if (toggleButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const card = toggleButton.closest(".task-kanban-inline-card, .task-kanban-inline-subtask");
+        if (card) this.toggleInlineSubtasks(card);
+        return;
+      }
+
+      if (event.target.closest("button")) return;
+      const card = event.target.closest(".task-kanban-inline-card, .task-kanban-inline-subtask");
+      if (!card || !element.contains(card)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.ctrlKey) {
+        const href = card.getAttribute("data-href");
+        if (href) this.app.workspace.openLinkText(href, sourcePath, false);
+        return;
+      }
+      if (card.classList.contains("task-kanban-inline-subtask")) {
+        await this.toggleInlineSubtaskStatus(card, sourcePath);
+        return;
+      }
+      this.toggleInlineSubtasks(card);
+    });
+
+    element.addEventListener("dragstart", (event) => {
+      const card = event.target.closest(".task-kanban-inline-card");
+      if (!card || !element.contains(card)) return;
+      if (event.target.closest(".task-kanban-inline-subtask")) {
+        event.preventDefault();
+        return;
+      }
+      const blockId = this.getInlineBlockId(card);
+      if (!blockId || !event.dataTransfer) return;
+      event.dataTransfer.setData(TASK_KANBAN_DRAG_MIME, blockId);
+      event.dataTransfer.effectAllowed = "move";
+      card.classList.add("is-dragging");
+    });
+
+    element.addEventListener("dragend", (event) => {
+      const card = event.target.closest(".task-kanban-inline-card");
+      if (card) card.classList.remove("is-dragging");
+      for (const column of element.querySelectorAll(".task-kanban-inline-column.is-drag-over")) {
+        column.classList.remove("is-drag-over");
+      }
+    });
+
+    element.addEventListener("change", async (event) => {
+      const input = event.target.closest(".task-kanban-inline-filter-menu input[type='checkbox']");
+      if (!input || !element.contains(input)) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const menu = input.closest(".task-kanban-inline-filter-menu");
+      if (input.closest("[data-filter-all]")) {
+        for (const option of menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']")) {
+          option.checked = input.checked;
+        }
+      } else {
+        const options = Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']"));
+        const all = menu.querySelector(".task-kanban-inline-filter-option[data-filter-all] input[type='checkbox']");
+        if (all) all.checked = options.length > 0 && options.every((option) => option.checked);
+      }
+
+      const file = this.app.vault.getAbstractFileByPath(sourcePath);
+      if (file instanceof TFile) await this.syncInlineKanbanDom(element, file);
+    });
+  }
+
+  async syncInlineKanbanDom(element, file) {
+    if (!element.querySelector(".task-kanban-inline-marker")) return;
+    this.prepareInlineKanbanCallout(element);
+    const expandedBlockIds = new Set(
+      Array.from(element.querySelectorAll(".task-kanban-inline-card.is-expanded, .task-kanban-inline-subtask.is-expanded"))
+        .map((card) => this.getInlineBlockId(card))
+        .filter(Boolean)
+    );
+    for (const blockId of this.inlineKanbanExpandedBlockIds.get(file.path) || []) {
+      expandedBlockIds.add(blockId);
+    }
+    const content = await this.readMarkdownFileContent(file);
+    const tasks = this.scanTasksInContent(file, content);
+    this.ensureInlineFilterControl(element);
+    this.renderInlineHeadingFilter(element, tasks);
+    const selectedHeadings = this.getInlineSelectedHeadings(element, tasks);
+    const visibleTasks = tasks.filter((task) => selectedHeadings.has(task.heading || ""));
+
+    for (const status of STATUSES) {
+      const column = element.querySelector(`.task-kanban-inline-column[data-status-key="${status.key}"]`);
+      if (!column) continue;
+      const items = visibleTasks.filter((task) => task.status.key === status.key);
+      column.innerHTML = items.length
+        ? items.map((task) => this.formatKanbanCellItem(task)).join("")
+        : "<span class=\"task-kanban-inline-empty\">Пусто</span>";
+    }
+    this.restoreInlineExpandedState(element, expandedBlockIds);
+
+    const table = element.querySelector("table:has(.task-kanban-inline-marker)");
+    if (!table) return;
+    const headers = Array.from(table.querySelectorAll("th"));
+    STATUSES.forEach((status, index) => {
+      const header = headers[index];
+      if (!header) return;
+      const count = visibleTasks.filter((task) => task.status.key === status.key).length;
+      header.textContent = `${status.icon} ${status.title} (${count})`;
+    });
+  }
+
+  ensureInlineFilterControl(element) {
+    const actions = element.querySelector(".task-kanban-inline-title-actions");
+    if (!actions || actions.querySelector(".task-kanban-inline-filter")) return;
+    const filter = document.createElement("span");
+    filter.className = "task-kanban-inline-filter";
+    filter.innerHTML = '<button class="task-kanban-inline-action task-kanban-inline-filter-toggle" type="button" aria-expanded="false">Фильтр</button><span class="task-kanban-inline-filter-menu"></span>';
+    actions.prepend(filter);
+  }
+
+  renderInlineHeadingFilter(element, tasks) {
+    const menu = element.querySelector(".task-kanban-inline-filter-menu");
+    if (!menu) return;
+    const previousSelected = new Set(
+      Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input:checked"))
+        .map((input) => input.value)
+    );
+    const headings = Array.from(new Set(tasks.map((task) => task.heading || "")));
+    const hasPreviousState = menu.dataset.initialized === "true";
+    const selected = hasPreviousState ? previousSelected : new Set(headings);
+    menu.dataset.initialized = "true";
+    const allChecked = headings.length > 0 && headings.every((heading) => selected.has(heading));
+
+    const options = [
+      `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox" ${allChecked ? "checked" : ""}>Все</label>`,
+      ...headings.map((heading) => {
+        const label = heading || "Без заголовка";
+        const checked = selected.has(heading) ? "checked" : "";
+        return `<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${this.escapeAttribute(heading)}" ${checked}>${this.escapeTableText(label)}</label>`;
+      })
+    ];
+    menu.innerHTML = options.join("");
+  }
+
+  getInlineSelectedHeadings(element, tasks) {
+    const headings = Array.from(new Set(tasks.map((task) => task.heading || "")));
+    const menu = element.querySelector(".task-kanban-inline-filter-menu");
+    if (!menu) return new Set(headings);
+    const selected = new Set(
+      Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input:checked"))
+        .map((input) => input.value)
+    );
+    return selected;
+  }
+
+  restoreInlineExpandedState(element, expandedBlockIds) {
+    if (!expandedBlockIds.size) return;
+    for (const card of element.querySelectorAll(".task-kanban-inline-card, .task-kanban-inline-subtask")) {
+      if (!expandedBlockIds.has(this.getInlineBlockId(card))) continue;
+      card.classList.add("is-expanded");
+      const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle");
+      if (button) {
+        button.setAttribute("aria-expanded", "true");
+        button.textContent = "⌄";
+      }
+    }
+  }
+
+  scheduleInlineKanbanRefresh(file, delay = INLINE_KANBAN_REFRESH_DELAY) {
+    const path = file.path;
+    window.clearTimeout(this.inlineKanbanRefreshTimers.get(path));
+    const timer = window.setTimeout(async () => {
+      this.inlineKanbanRefreshTimers.delete(path);
+      await this.refreshRenderedInlineKanbans(file);
+    }, delay);
+    this.inlineKanbanRefreshTimers.set(path, timer);
+  }
+
+  async refreshInlineKanbanBlock(file) {
+    if (this.inlineKanbanRefreshInProgress.has(file.path)) return;
+    const activeEditorState = this.captureActiveEditorState(file);
+    this.inlineKanbanRefreshInProgress.add(file.path);
+    try {
+      if (activeEditorState) {
+        this.refreshInlineKanbanBlockInEditor(file, activeEditorState);
+        return;
+      }
+      await this.app.vault.process(file, (content) => {
+        if (!this.hasKanbanBlock(content)) return content;
+        const nextContent = this.rebuildKanbanBlockContent(file, content);
+        return nextContent === content ? content : nextContent;
+      });
+      this.restoreActiveEditorState(activeEditorState);
+    } finally {
+      this.inlineKanbanRefreshInProgress.delete(file.path);
+    }
+  }
+
+  refreshInlineKanbanBlockInEditor(file, state) {
+    const content = state.editor.getValue?.();
+    if (typeof content !== "string" || !this.hasKanbanBlock(content)) return;
+    const update = this.buildKanbanBlockUpdate(file, content);
+    if (update.nextContent === content) return;
+    const range = this.getKanbanBlockRange(content);
+    if (range && update.contentWithBlockIds === content && state.editor.replaceRange) {
+      state.editor.replaceRange(
+        update.block,
+        this.offsetToEditorPos(state.editor, content, range.start),
+        this.offsetToEditorPos(state.editor, content, range.end)
+      );
+    } else {
+      state.editor.setValue(update.nextContent);
+    }
+    this.restoreActiveEditorState(state);
+  }
+
+  rebuildKanbanBlockContent(file, content) {
+    return this.buildKanbanBlockUpdate(file, content).nextContent;
+  }
+
+  buildKanbanBlockUpdate(file, content) {
+    const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
+    const tasks = this.scanTasksInContent(file, contentWithBlockIds);
+    const block = this.buildKanbanBlock(file, tasks);
+    return {
+      contentWithBlockIds,
+      block,
+      nextContent: this.replaceOrInsertKanbanBlock(contentWithBlockIds, block)
+    };
+  }
+
+  getKanbanBlockRange(content) {
+    const start = content.indexOf(KANBAN_START);
+    const end = content.indexOf(KANBAN_END);
+    if (start < 0 || end <= start) return null;
+    return { start, end: end + KANBAN_END.length };
+  }
+
+  offsetToEditorPos(editor, content, offset) {
+    if (editor.offsetToPos) return editor.offsetToPos(offset);
+    const prefix = content.slice(0, offset);
+    const lines = prefix.split(/\r?\n/);
+    return { line: lines.length - 1, ch: lines[lines.length - 1].length };
+  }
+
+  captureActiveEditorState(file) {
+    const activeView = this.app.workspace.getActiveViewOfType?.(MarkdownView);
+    const view = activeView?.file?.path === file.path && activeView.editor
+      ? activeView
+      : this.findOpenMarkdownView(file);
+    if (!view?.editor) return null;
+    return {
+      editor: view.editor,
+      cursor: view.editor.getCursor(),
+      scrollInfo: view.editor.getScrollInfo?.()
+    };
+  }
+
+  findOpenMarkdownView(file) {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file?.path === file.path && view.editor) return view;
+    }
+    return null;
+  }
+
+  restoreActiveEditorState(state) {
+    if (!state?.editor || !state.cursor) return;
+    window.requestAnimationFrame(() => {
+      state.editor.setCursor(state.cursor);
+      if (state.scrollInfo && state.editor.scrollTo) {
+        state.editor.scrollTo(state.scrollInfo.left, state.scrollInfo.top);
+      }
+    });
+  }
+
+  hasKanbanBlock(content) {
+    const startIndex = content.indexOf(KANBAN_START);
+    const endIndex = content.indexOf(KANBAN_END);
+    return startIndex >= 0 && endIndex > startIndex;
+  }
+
   async collectTasks(activeFileOnly) {
     const activeFile = this.app.workspace.getActiveFile();
     const files = activeFileOnly && activeFile
@@ -438,7 +1005,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     const results = [];
 
     for (const file of files) {
-      const text = await this.app.vault.cachedRead(file);
+      const text = await this.readMarkdownFileContent(file);
       results.push(...this.scanTasksInContent(file, text));
     }
 
@@ -447,6 +1014,13 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       if (statusDiff) return statusDiff;
       return a.file.path.localeCompare(b.file.path) || a.line - b.line;
     });
+  }
+
+  async readMarkdownFileContent(file) {
+    const view = this.findOpenMarkdownView(file);
+    const editorText = view?.editor?.getValue?.();
+    if (typeof editorText === "string") return editorText;
+    return this.app.vault.read(file);
   }
 
   scanTasksInContent(file, content) {
@@ -555,9 +1129,9 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       };
     });
 
-    const calloutActions = '<span class="task-kanban-inline-title-actions"><button class="task-kanban-inline-action task-kanban-inline-hidden-toggle" type="button" aria-pressed="false" title="Показать отмененные и предложенные">Доп.</button><button class="task-kanban-inline-action" data-action="refresh">Обновить</button><button class="task-kanban-inline-action task-kanban-inline-action--danger" data-action="delete">Удалить</button></span>';
+    const calloutActions = '<span class="task-kanban-inline-title-actions"><span class="task-kanban-inline-filter"><button class="task-kanban-inline-action task-kanban-inline-filter-toggle" type="button" aria-expanded="false">Фильтр</button><span class="task-kanban-inline-filter-menu"></span></span><button class="task-kanban-inline-action task-kanban-inline-hidden-toggle" type="button" aria-pressed="false" title="Показать отмененные и предложенные">Доп.</button><button class="task-kanban-inline-action" data-action="refresh">Обновить</button><button class="task-kanban-inline-action task-kanban-inline-action--danger" data-action="delete">Удалить</button><button class="task-kanban-inline-action task-kanban-inline-collapse-toggle" type="button" aria-pressed="false">Свернуть</button></span>';
     const calloutLines = [
-      `[!task-kanban]+ Task Kanban ${calloutActions}`,
+      `[!task-kanban] Task Kanban ${calloutActions}`,
       "",
       `| ${columns.map((column) => column.title).join(" | ")} |`,
       `| ${columns.map(() => "---").join(" | ")} |`,
@@ -716,6 +1290,21 @@ module.exports = class TaskKanbanPlugin extends Plugin {
   }
 
   async setTaskStatus(task, status) {
+    const openView = this.findOpenMarkdownView(task.file);
+    if (openView?.editor) {
+      const content = openView.editor.getValue();
+      const lines = content.split(/\r?\n/);
+      const line = lines[task.line] || "";
+      const nextLine = line.replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
+      if (nextLine === line) return;
+      openView.editor.replaceRange(
+        nextLine,
+        { line: task.line, ch: 0 },
+        { line: task.line, ch: line.length }
+      );
+      return;
+    }
+
     await this.app.vault.process(task.file, (content) => {
       const lines = content.split(/\r?\n/);
       const line = lines[task.line] || "";
