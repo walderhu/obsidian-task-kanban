@@ -260,8 +260,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           event.stopPropagation();
           const subtask = button.closest(".task-kanban-inline-subtask");
           if (event.ctrlKey) {
-            const href = button.getAttribute("data-href") || subtask?.getAttribute("data-href");
-            if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+            const blockId = this.getInlineBlockId(button) || this.getInlineBlockId(subtask);
+            if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, context.sourcePath, false);
             return;
           }
           await this.toggleInlineSubtaskStatus(subtask, context.sourcePath);
@@ -273,8 +273,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           event.preventDefault();
           event.stopPropagation();
           if (event.ctrlKey) {
-            const href = card.getAttribute("data-href");
-            if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+            const blockId = this.getInlineBlockId(card);
+            if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, context.sourcePath, false);
             return;
           }
           if (card.classList.contains("task-kanban-inline-subtask")) {
@@ -315,6 +315,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
           if (action === "refresh") {
             await this.insertKanbanIntoFile(file, false);
             await this.refreshInlineKanbanView(file, element);
+            // After Obsidian re-renders the file the old element is replaced; sync the new one
+            window.setTimeout(() => this.scheduleInlineKanbanRefresh(file, 0), 600);
           }
           if (action === "delete" && window.confirm("Точно удалить Kanban?")) {
             await this.deleteKanbanFromFile(file);
@@ -444,10 +446,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
   }
 
   getInlineBlockId(element) {
-    const blockId = element?.getAttribute("data-block-id");
-    if (blockId) return blockId;
-    const href = element?.getAttribute("data-href") || "";
-    return href.match(/^#\^(.+)$/)?.[1] || "";
+    return element?.getAttribute("data-block-id") || "";
   }
 
   getInlineLine(element) {
@@ -605,6 +604,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     const file = this.app.workspace.getActiveFile();
     this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
     window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), INLINE_KANBAN_EDITOR_REFRESH_DELAY);
+    // Backup refresh: Obsidian may write the file to disk later than the event fires
+    window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), 1200);
   }
 
   isMarkdownCheckboxEventTarget(target) {
@@ -614,8 +615,9 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     if (element.closest(
       "input[type='checkbox'], .task-list-item-checkbox, .cm-formatting-task, .cm-task-marker"
     )) return true;
-
-    const taskLine = element.closest(".HyperMD-task-line, .task-list-item, .cm-line");
+    // Reading mode: checkbox is rendered as <input> inside .task-list-item; textContent never has raw markdown
+    if (element.closest(".task-list-item")) return true;
+    const taskLine = element.closest(".HyperMD-task-line, .cm-line");
     return Boolean(taskLine?.textContent?.match(/[-*]\s+\[[^\]]*\]/));
   }
 
@@ -710,8 +712,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       event.stopPropagation();
       event.stopImmediatePropagation();
       if (event.ctrlKey) {
-        const href = subtask.getAttribute("data-href");
-        if (href) this.app.workspace.openLinkText(href, sourcePath, false);
+        const blockId = this.getInlineBlockId(subtask);
+        if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, sourcePath, false);
         return;
       }
       await this.toggleInlineSubtaskStatus(subtask, sourcePath);
@@ -759,8 +761,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
         event.stopPropagation();
         const subtask = statusButton.closest(".task-kanban-inline-subtask");
         if (event.ctrlKey) {
-          const href = statusButton.getAttribute("data-href") || subtask?.getAttribute("data-href");
-          if (href) this.app.workspace.openLinkText(href, sourcePath, false);
+          const blockId = this.getInlineBlockId(statusButton) || this.getInlineBlockId(subtask);
+          if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, sourcePath, false);
           return;
         }
         await this.toggleInlineSubtaskStatus(subtask, sourcePath);
@@ -782,8 +784,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       event.preventDefault();
       event.stopPropagation();
       if (event.ctrlKey) {
-        const href = card.getAttribute("data-href");
-        if (href) this.app.workspace.openLinkText(href, sourcePath, false);
+        const blockId = this.getInlineBlockId(card);
+        if (blockId) this.app.workspace.openLinkText(`#^${blockId}`, sourcePath, false);
         return;
       }
       if (card.classList.contains("task-kanban-inline-subtask")) {
@@ -1315,12 +1317,27 @@ module.exports = class TaskKanbanPlugin extends Plugin {
   }
 
   async insertKanbanIntoFile(file, showNotice = true) {
-    await this.app.vault.process(file, (content) => {
+    const openView = this.findOpenMarkdownView(file);
+    // When the editor is open in source/live mode, use its buffer to capture unsaved changes
+    if (openView?.editor?.getValue && openView.editor.setValue && openView.getMode?.() !== "preview") {
+      const content = openView.editor.getValue();
       const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
       const tasks = this.scanTasksInContent(file, contentWithBlockIds);
       const block = this.buildKanbanBlock(file, tasks);
-      return this.replaceOrInsertKanbanBlock(contentWithBlockIds, block);
-    });
+      const nextContent = this.replaceOrInsertKanbanBlock(contentWithBlockIds, block);
+      if (nextContent !== content) {
+        const state = this.captureActiveEditorState(file);
+        openView.editor.setValue(nextContent);
+        this.restoreActiveEditorState(state);
+      }
+    } else {
+      await this.app.vault.process(file, (content) => {
+        const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
+        const tasks = this.scanTasksInContent(file, contentWithBlockIds);
+        const block = this.buildKanbanBlock(file, tasks);
+        return this.replaceOrInsertKanbanBlock(contentWithBlockIds, block);
+      });
+    }
     if (showNotice) new Notice("Kanban обновлен");
   }
 
@@ -1367,7 +1384,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       : "";
     const lineAttr = ` data-line="${this.escapeAttribute(task.line)}"`;
     const attrs = task.blockId
-      ? `${lineAttr} data-block-id="${this.escapeAttribute(task.blockId)}" data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0" draggable="true"`
+      ? `${lineAttr} data-block-id="${this.escapeAttribute(task.blockId)}" tabindex="0" draggable="true"`
       : lineAttr;
     const subtasks = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
     const toggle = task.subtasks?.length
@@ -1381,7 +1398,7 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     const items = subtasks.map((task) => {
       const lineAttr = ` data-line="${this.escapeAttribute(task.line)}"`;
       const attrs = task.blockId
-        ? `${lineAttr} data-block-id="${this.escapeAttribute(task.blockId)}" data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0"`
+        ? `${lineAttr} data-block-id="${this.escapeAttribute(task.blockId)}" tabindex="0"`
         : lineAttr;
       const children = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
       const status = task.blockId
