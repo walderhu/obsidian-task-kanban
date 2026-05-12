@@ -184,12 +184,25 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     });
 
     this.registerMarkdownPostProcessor((element, context) => {
-      for (const card of element.querySelectorAll(".task-kanban-inline-card[data-href]")) {
+      for (const card of element.querySelectorAll(".task-kanban-inline-card[data-href], .task-kanban-inline-subtask[data-href]")) {
         card.addEventListener("click", (event) => {
+          if (event.target.closest("button")) return;
           event.preventDefault();
           event.stopPropagation();
           const href = card.getAttribute("data-href");
           if (href) this.app.workspace.openLinkText(href, context.sourcePath, false);
+        });
+      }
+      for (const button of element.querySelectorAll(".task-kanban-inline-subtasks-toggle")) {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const card = button.closest(".task-kanban-inline-card");
+          if (!card) return;
+          const expanded = !card.classList.contains("is-expanded");
+          card.classList.toggle("is-expanded", expanded);
+          button.setAttribute("aria-expanded", String(expanded));
+          button.textContent = expanded ? "⌄" : "›";
         });
       }
       for (const button of element.querySelectorAll(".task-kanban-inline-action[data-action]")) {
@@ -262,6 +275,8 @@ module.exports = class TaskKanbanPlugin extends Plugin {
   scanTasksInContent(file, content) {
     const lines = content.split(/\r?\n/);
     const tasks = [];
+    const roots = [];
+    const stack = [];
     let heading = "";
     let insideGeneratedKanban = false;
 
@@ -286,20 +301,42 @@ module.exports = class TaskKanbanPlugin extends Plugin {
       const status = STATUS_BY_MARKER.get(marker) || STATUSES[0];
       const rawText = taskMatch[3].trim();
       const blockId = rawText.match(BLOCK_ID_RE)?.[1] || "";
-      tasks.push({
+      const task = {
         file,
         line,
         raw,
         indent: taskMatch[1] || "",
+        indentLevel: this.getIndentLevel(taskMatch[1] || ""),
         marker,
         blockId,
         text: rawText.replace(BLOCK_ID_RE, "").trim(),
         status,
-        heading
-      });
+        heading,
+        subtasks: []
+      };
+
+      while (stack.length && stack[stack.length - 1].indentLevel >= task.indentLevel) {
+        stack.pop();
+      }
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        parent.subtasks.push(task);
+      } else {
+        roots.push(task);
+      }
+      tasks.push(task);
+      stack.push(task);
     }
 
-    return tasks;
+    return roots;
+  }
+
+  getIndentLevel(indent) {
+    let level = 0;
+    for (const char of indent) {
+      level += char === "\t" ? 4 : 1;
+    }
+    return level;
   }
 
   async insertKanbanIntoCurrentFile() {
@@ -366,7 +403,22 @@ module.exports = class TaskKanbanPlugin extends Plugin {
     const attrs = task.blockId
       ? ` data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0"`
       : "";
-    return `<div class="task-kanban-inline-card"${attrs}>${heading}<span class="task-kanban-inline-text">${this.escapeTableText(task.text)}</span></div>`;
+    const subtasks = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
+    const toggle = task.subtasks?.length
+      ? `<button class="task-kanban-inline-subtasks-toggle" type="button" aria-expanded="false" title="Показать подзадачи">›</button>`
+      : "";
+    return `<div class="task-kanban-inline-card"${attrs}>${heading}<span class="task-kanban-inline-main">${toggle}<span class="task-kanban-inline-text">${this.escapeTableText(task.text)}</span></span>${subtasks}</div>`;
+  }
+
+  formatInlineSubtasks(subtasks) {
+    const items = subtasks.map((task) => {
+      const attrs = task.blockId
+        ? ` data-href="#^${this.escapeAttribute(task.blockId)}" role="link" tabindex="0"`
+        : "";
+      const children = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
+      return `<div class="task-kanban-inline-subtask"${attrs}><span class="task-kanban-inline-subtask-status">${this.escapeTableText(task.status.icon)}</span><span class="task-kanban-inline-subtask-text">${this.escapeTableText(task.text)}</span>${children}</div>`;
+    }).join("");
+    return `<div class="task-kanban-inline-subtasks">${items}</div>`;
   }
 
   escapeTableText(value) {

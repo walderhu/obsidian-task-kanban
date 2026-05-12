@@ -299,6 +299,71 @@
   display: block;
 }
 
+.markdown-rendered .task-kanban-inline-main,
+.cm-html-embed .task-kanban-inline-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.markdown-rendered .task-kanban-inline-subtasks-toggle,
+.cm-html-embed .task-kanban-inline-subtasks-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 0.9em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.markdown-rendered .task-kanban-inline-subtasks-toggle:hover,
+.cm-html-embed .task-kanban-inline-subtasks-toggle:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.markdown-rendered .task-kanban-inline-subtasks,
+.cm-html-embed .task-kanban-inline-subtasks {
+  display: none;
+  margin: 6px 0 0 0.45em;
+  padding-left: 0.7em;
+  border-left: 1px solid var(--background-modifier-border);
+}
+
+.markdown-rendered .task-kanban-inline-card.is-expanded .task-kanban-inline-subtasks,
+.cm-html-embed .task-kanban-inline-card.is-expanded .task-kanban-inline-subtasks {
+  display: block;
+}
+
+.markdown-rendered .task-kanban-inline-subtask,
+.cm-html-embed .task-kanban-inline-subtask {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.markdown-rendered .task-kanban-inline-subtask:hover,
+.cm-html-embed .task-kanban-inline-subtask:hover {
+  color: var(--text-normal);
+}
+
+.markdown-rendered .task-kanban-inline-subtask-status,
+.cm-html-embed .task-kanban-inline-subtask-status {
+  margin-right: 4px;
+}
+
 .markdown-rendered table:has(.task-kanban-inline-marker) .task-kanban-inline-card:hover,
 .cm-html-embed table:has(.task-kanban-inline-marker) .task-kanban-inline-card:hover {
   color: var(--text-normal);
