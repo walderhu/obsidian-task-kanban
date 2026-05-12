@@ -1,0 +1,9 @@
+{
+  "id": "task-kanban",
+  "name": "Task Kanban",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Builds a Kanban board from Markdown checkbox states.",
+  "author": "Local",
+  "isDesktopOnly": false
+}
