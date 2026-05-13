@@ -44,7 +44,7 @@ scanTasksInContent(file, content) {
   const tasks = [];
   const roots = [];
   const stack = [];
-  let heading = "";
+  let heading = null;
   let insideGeneratedKanban = false;
 
   for (let line = 0; line < lines.length; line++) {
@@ -60,7 +60,12 @@ scanTasksInContent(file, content) {
     if (insideGeneratedKanban) continue;
 
     const headingMatch = raw.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-    if (headingMatch) heading = headingMatch[2].trim();
+    if (headingMatch) {
+      heading = {
+        level: headingMatch[1].length,
+        text: headingMatch[2].trim()
+      };
+    }
 
     const taskMatch = raw.match(TASK_LINE_RE);
     if (!taskMatch) continue;

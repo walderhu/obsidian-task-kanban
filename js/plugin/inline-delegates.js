@@ -229,6 +229,46 @@ bindInlineKanbanDelegates(element, sourcePath) {
     this.scheduleInlineKanbanRefresh(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
   });
 
+  element.addEventListener("click", (event) => {
+    const expandBtn = event.target.closest(".task-kanban-heading-expand");
+    if (expandBtn && element.contains(expandBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const headingText = expandBtn.getAttribute("data-heading");
+      const option = expandBtn.closest(".task-kanban-heading-option");
+      const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
+      const children = option?.nextElementSibling;
+
+      if (isExpanded) {
+        expandBtn.textContent = " ▶ ";
+        expandBtn.setAttribute("aria-expanded", "false");
+        let current = option?.nextElementSibling;
+        while (current && current.classList.contains("task-kanban-heading-option")) {
+          const depth = parseInt(current.getAttribute("data-heading-level") || "1");
+          const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
+          if (depth <= parentDepth) break;
+          current.style.display = "none";
+          current = current.nextElementSibling;
+        }
+      } else {
+        expandBtn.textContent = " ▼ ";
+        expandBtn.setAttribute("aria-expanded", "true");
+        let current = option?.nextElementSibling;
+        while (current && current.classList.contains("task-kanban-heading-option")) {
+          const depth = parseInt(current.getAttribute("data-heading-level") || "1");
+          const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
+          if (depth <= parentDepth) break;
+          const childExpandBtn = current.querySelector(".task-kanban-heading-expand");
+          if (!childExpandBtn || childExpandBtn.getAttribute("aria-expanded") === "true") {
+            current.style.display = "";
+          }
+          current = current.nextElementSibling;
+        }
+      }
+      return;
+    }
+  });
+
   element.addEventListener("change", async (event) => {
     const sortInput = event.target.closest(".task-kanban-inline-sort-menu input[type='radio']");
     if (sortInput && element.contains(sortInput)) {
@@ -247,13 +287,27 @@ bindInlineKanbanDelegates(element, sourcePath) {
 
     const menu = input.closest(".task-kanban-inline-filter-menu");
     if (input.closest("[data-filter-all]")) {
-      for (const option of menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']")) {
+      for (const option of menu.querySelectorAll("input[type='checkbox']:not([data-filter-all])")) {
         option.checked = input.checked;
       }
     } else {
-      const options = Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']"));
-      const all = menu.querySelector(".task-kanban-inline-filter-option[data-filter-all] input[type='checkbox']");
-      if (all) all.checked = options.length > 0 && options.every((option) => option.checked);
+      const parentHeading = input.getAttribute("data-parent");
+      if (input.checked && parentHeading) {
+        let option = input.closest(".task-kanban-heading-option");
+        let current = option?.nextElementSibling;
+        while (current && current.classList.contains("task-kanban-heading-option")) {
+          const depth = parseInt(current.getAttribute("data-heading-level") || "1");
+          const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
+          if (depth <= parentDepth) break;
+          const childInput = current.querySelector("input[type='checkbox']");
+          if (childInput) childInput.checked = true;
+          current = current.nextElementSibling;
+        }
+      }
+
+      const allInputs = Array.from(menu.querySelectorAll("input[type='checkbox']:not([data-filter-all])"));
+      const all = menu.querySelector("input[data-filter-all]");
+      if (all) all.checked = allInputs.length > 0 && allInputs.every((opt) => opt.checked);
     }
 
     await this.saveInlineHeadingFilterSelection(sourcePath, menu);

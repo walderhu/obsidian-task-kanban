@@ -18,8 +18,9 @@ const {
 
 module.exports = {
 formatKanbanCellItem(task) {
-  const heading = task.heading
-    ? `<span class="task-kanban-inline-heading">${this.escapeTableText(task.heading)}</span>`
+  const headingText = task.heading?.text || (typeof task.heading === "string" ? task.heading : "");
+  const heading = headingText
+    ? `<span class="task-kanban-inline-heading">${this.escapeTableText(headingText)}</span>`
     : "";
   const lineAttr = ` data-line="${this.escapeAttribute(task.line)}"`;
   const attrs = task.blockId

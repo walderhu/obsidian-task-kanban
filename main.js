@@ -185,7 +185,8 @@
       getVisibleTasks() {
         if (!this.query) return this.tasks;
         return this.tasks.filter((task) => {
-          const haystack = `${task.text} ${task.file.path} ${task.heading}`.toLowerCase();
+          const headingText = typeof task.heading === "string" ? task.heading : task.heading?.text || "";
+          const haystack = `${task.text} ${task.file.path} ${headingText}`.toLowerCase();
           return haystack.includes(this.query);
         });
       }
@@ -202,7 +203,8 @@
     
         const meta = card.createDiv({ cls: "task-kanban-card-meta" });
         meta.createSpan({ cls: "task-kanban-card-file", text: task.file.basename });
-        if (task.heading) meta.createSpan({ cls: "task-kanban-card-heading", text: task.heading });
+        const headingText = typeof task.heading === "string" ? task.heading : task.heading?.text || "";
+        if (headingText) meta.createSpan({ cls: "task-kanban-card-heading", text: headingText });
         meta.createSpan({ cls: "task-kanban-card-line", text: `:${task.line + 1}` });
     
         const actions = card.createDiv({ cls: "task-kanban-card-actions" });
@@ -1204,6 +1206,46 @@
         this.scheduleInlineKanbanRefresh(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
       });
     
+      element.addEventListener("click", (event) => {
+        const expandBtn = event.target.closest(".task-kanban-heading-expand");
+        if (expandBtn && element.contains(expandBtn)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const headingText = expandBtn.getAttribute("data-heading");
+          const option = expandBtn.closest(".task-kanban-heading-option");
+          const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
+          const children = option?.nextElementSibling;
+    
+          if (isExpanded) {
+            expandBtn.textContent = " ▶ ";
+            expandBtn.setAttribute("aria-expanded", "false");
+            let current = option?.nextElementSibling;
+            while (current && current.classList.contains("task-kanban-heading-option")) {
+              const depth = parseInt(current.getAttribute("data-heading-level") || "1");
+              const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
+              if (depth <= parentDepth) break;
+              current.style.display = "none";
+              current = current.nextElementSibling;
+            }
+          } else {
+            expandBtn.textContent = " ▼ ";
+            expandBtn.setAttribute("aria-expanded", "true");
+            let current = option?.nextElementSibling;
+            while (current && current.classList.contains("task-kanban-heading-option")) {
+              const depth = parseInt(current.getAttribute("data-heading-level") || "1");
+              const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
+              if (depth <= parentDepth) break;
+              const childExpandBtn = current.querySelector(".task-kanban-heading-expand");
+              if (!childExpandBtn || childExpandBtn.getAttribute("aria-expanded") === "true") {
+                current.style.display = "";
+              }
+              current = current.nextElementSibling;
+            }
+          }
+          return;
+        }
+      });
+    
       element.addEventListener("change", async (event) => {
         const sortInput = event.target.closest(".task-kanban-inline-sort-menu input[type='radio']");
         if (sortInput && element.contains(sortInput)) {
@@ -1222,13 +1264,27 @@
     
         const menu = input.closest(".task-kanban-inline-filter-menu");
         if (input.closest("[data-filter-all]")) {
-          for (const option of menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']")) {
+          for (const option of menu.querySelectorAll("input[type='checkbox']:not([data-filter-all])")) {
             option.checked = input.checked;
           }
         } else {
-          const options = Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']"));
-          const all = menu.querySelector(".task-kanban-inline-filter-option[data-filter-all] input[type='checkbox']");
-          if (all) all.checked = options.length > 0 && options.every((option) => option.checked);
+          const parentHeading = input.getAttribute("data-parent");
+          if (input.checked && parentHeading) {
+            let option = input.closest(".task-kanban-heading-option");
+            let current = option?.nextElementSibling;
+            while (current && current.classList.contains("task-kanban-heading-option")) {
+              const depth = parseInt(current.getAttribute("data-heading-level") || "1");
+              const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
+              if (depth <= parentDepth) break;
+              const childInput = current.querySelector("input[type='checkbox']");
+              if (childInput) childInput.checked = true;
+              current = current.nextElementSibling;
+            }
+          }
+    
+          const allInputs = Array.from(menu.querySelectorAll("input[type='checkbox']:not([data-filter-all])"));
+          const all = menu.querySelector("input[data-filter-all]");
+          if (all) all.checked = allInputs.length > 0 && allInputs.every((opt) => opt.checked);
         }
     
         await this.saveInlineHeadingFilterSelection(sourcePath, menu);
@@ -1385,7 +1441,10 @@
       this.renderInlineHeadingFilter(element, tasks);
       this.renderInlineSortMenu(element);
       const selectedHeadings = this.getInlineSelectedHeadings(element, tasks);
-      const visibleTasks = this.sortTasksForKanban(tasks.filter((task) => selectedHeadings.has(task.heading || "")));
+      const visibleTasks = this.sortTasksForKanban(tasks.filter((task) => {
+        const headingText = typeof task.heading === "string" ? task.heading : task.heading?.text || "";
+        return selectedHeadings.has(headingText);
+      }));
     
       for (const status of STATUSES) {
         const column = element.querySelector(`.task-kanban-inline-column[data-status-key="${status.key}"]`);
@@ -1437,32 +1496,87 @@
       }
     },
     
+    buildHeadingTree(headingObjects) {
+      const headings = headingObjects
+        .filter(Boolean)
+        .map(h => typeof h === "string" ? { level: 1, text: h } : h);
+    
+      const uniqueMap = new Map();
+      for (const h of headings) {
+        if (!uniqueMap.has(h.text)) {
+          uniqueMap.set(h.text, h);
+        }
+      }
+    
+      const items = Array.from(uniqueMap.values());
+      const tree = [];
+      const stack = [];
+    
+      for (const item of items) {
+        while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
+          stack.pop();
+        }
+    
+        const parent = stack[stack.length - 1];
+        const node = { ...item, children: [] };
+    
+        if (parent) {
+          parent.children.push(node);
+        } else {
+          tree.push(node);
+        }
+        stack.push(node);
+      }
+    
+      return tree;
+    },
+    
+    renderHeadingTreeOptions(nodes, selected, depth = 0) {
+      let html = "";
+      for (const node of nodes) {
+        const indent = depth * 20;
+        const hasChildren = node.children && node.children.length > 0;
+        const isExpanded = node._expanded !== false;
+        const checked = selected.has(node.text) ? "checked" : "";
+        const expandBtn = hasChildren ? `<button class="task-kanban-heading-expand" style="margin-left: ${indent}px" data-heading="${this.escapeAttribute(node.text)}" type="button" aria-expanded="${isExpanded}"> ${isExpanded ? "▼" : "▶"} </button>` : `<span style="margin-left: ${indent + 20}px"></span>`;
+    
+        html += `<div class="task-kanban-heading-option" data-heading-text="${this.escapeAttribute(node.text)}" data-heading-level="${node.level}">
+          ${expandBtn}
+          <label class="task-kanban-inline-filter-option" style="margin-left: 0">
+            <input type="checkbox" value="${this.escapeAttribute(node.text)}" ${checked} data-parent="${this.escapeAttribute(node.text)}">
+            ${this.escapeTableText(node.text || "Без заголовка")}
+          </label>
+        </div>`;
+    
+        if (hasChildren && isExpanded) {
+          html += this.renderHeadingTreeOptions(node.children, selected, depth + 1);
+        }
+      }
+      return html;
+    },
+    
     renderInlineHeadingFilter(element, tasks) {
       const menu = element.querySelector(".task-kanban-inline-filter-menu");
       if (!menu) return;
       const previousSelected = new Set(
-        Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input:checked"))
+        Array.from(menu.querySelectorAll("input[type='checkbox']:not([data-filter-all]):checked"))
           .map((input) => input.value)
       );
-      const headings = Array.from(new Set(tasks.map((task) => task.heading || "")));
+      const headingObjects = Array.from(tasks.map((task) => task.heading || ""));
       const hasPreviousState = menu.dataset.initialized === "true";
       const savedSelected = this.inlineKanbanHeadingFilters?.[element.dataset.taskKanbanSourcePath];
+      const headingTexts = Array.from(new Set(headingObjects.map(h => typeof h === "string" ? h : h?.text || "")));
       const selected = hasPreviousState
         ? previousSelected
         : Array.isArray(savedSelected)
           ? new Set(savedSelected)
-          : new Set(headings);
+          : new Set(headingTexts);
       menu.dataset.initialized = "true";
-      const allChecked = headings.length > 0 && headings.every((heading) => selected.has(heading));
-      const options = [
-        `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox" ${allChecked ? "checked" : ""}>Все</label>`,
-        ...headings.map((heading) => {
-          const label = heading || "Без заголовка";
-          const checked = selected.has(heading) ? "checked" : "";
-          return `<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${this.escapeAttribute(heading)}" ${checked}>${this.escapeTableText(label)}</label>`;
-        })
-      ];
-      menu.innerHTML = options.join("");
+      const allChecked = headingTexts.length > 0 && headingTexts.every((heading) => selected.has(heading));
+      const tree = this.buildHeadingTree(headingObjects);
+      const treeHtml = this.renderHeadingTreeOptions(tree, selected);
+      const html = `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox" ${allChecked ? "checked" : ""}>Все</label>${treeHtml}`;
+      menu.innerHTML = html;
     },
     
     renderInlineSortMenu(element) {
@@ -1481,9 +1595,10 @@
     },
     
     getInlineSelectedHeadings(element, tasks) {
-      const headings = Array.from(new Set(tasks.map((task) => task.heading || "")));
+      const headingObjects = Array.from(new Set(tasks.map((task) => task.heading || "")));
+      const headingTexts = headingObjects.map(h => typeof h === "string" ? h : h?.text || "");
       const menu = element.querySelector(".task-kanban-inline-filter-menu");
-      if (!menu) return new Set(headings);
+      if (!menu) return new Set(headingTexts);
       const selected = new Set(
         Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input:checked"))
           .map((input) => input.value)
@@ -1693,7 +1808,7 @@
       const tasks = [];
       const roots = [];
       const stack = [];
-      let heading = "";
+      let heading = null;
       let insideGeneratedKanban = false;
     
       for (let line = 0; line < lines.length; line++) {
@@ -1709,7 +1824,12 @@
         if (insideGeneratedKanban) continue;
     
         const headingMatch = raw.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
-        if (headingMatch) heading = headingMatch[2].trim();
+        if (headingMatch) {
+          heading = {
+            level: headingMatch[1].length,
+            text: headingMatch[2].trim()
+          };
+        }
     
         const taskMatch = raw.match(TASK_LINE_RE);
         if (!taskMatch) continue;
@@ -1875,8 +1995,9 @@
     
     module.exports = {
     formatKanbanCellItem(task) {
-      const heading = task.heading
-        ? `<span class="task-kanban-inline-heading">${this.escapeTableText(task.heading)}</span>`
+      const headingText = task.heading?.text || (typeof task.heading === "string" ? task.heading : "");
+      const heading = headingText
+        ? `<span class="task-kanban-inline-heading">${this.escapeTableText(headingText)}</span>`
         : "";
       const lineAttr = ` data-line="${this.escapeAttribute(task.line)}"`;
       const attrs = task.blockId

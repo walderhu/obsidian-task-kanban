@@ -1,120 +1,90 @@
 {
-  "timestamp": "2026-05-13T13:57:32.835Z",
+  "timestamp": "2026-05-13T14:12:36.714Z",
   "mode": "headless",
   "workerType": "optimize",
   "model": "sonnet",
-  "durationMs": 146237,
-  "executionId": "optimize_1778680506598_fa6iwy",
+  "durationMs": 85949,
+  "executionId": "optimize_1778681470765_4lp4yu",
   "success": true,
   "findings": {
     "sections": [
       {
-        "title": "Performance Audit: task-kanban",
-        "content": "\n---\n\n",
+        "title": "Performance Issues Found",
+        "content": "\n",
         "level": 2
       },
       {
-        "title": "1. N+1 Query Patterns",
-        "content": "\n**Status filtering — O(5n) instead of O(n)**\n\nAppears in `view.js:116`, `inline-dom.js:148`, `markdown-block.js:60`:\n\n```js\n// CURRENT — scans full task array 5 times\nfor (const status of STATUSES) {\n  const tasks = visibleTasks.filter(t => t.status.key === status.key);\n}\n```\n\n```js\n// FIX — single pass groupBy\nconst byStatus = Object.groupBy(visibleTasks, t => t.status.key);\n// or for older targets:\nconst byStatus = visibleTasks.reduce((acc, t) => {\n  (acc[t.status.key] ??= []).push(t);\n  return acc;\n}, {});\nfor (const status of STATUSES) {\n  const tasks = byStatus[status.key] ?? [];\n}\n```\n\n**DOM query per status — `inline-dom.js:149`**\n\n```js\n// CURRENT — 5 querySelector calls per sync\nfor (const status of STATUSES) {\n  const column = element.querySelector(`.task-kanban-inline-column[data-status-key=\"${status.key}\"]`);\n}\n```\n\n```js\n// FIX — query once, index by key\nconst columns = Object.fromEntries(\n  Array.from(element.querySelectorAll(\".task-kanban-inline-column\"))\n    .map(el => [el.dataset.statusKey, el])\n);\nfor (const status of STATUSES) {\n  const column = columns[status.key];\n}\n```\n\n**File read per kanban block — `workspace.js:37`**\n\nIf a file has 3 `task-kanban` blocks, file content is read and `scanTasksInContent()` called 3 times.\n\n```js\n// FIX — read once, pass to all blocks\nconst content = await this.app.vault.read(file);\nconst tasks = scanTasksInContent(content);\nfor (const element of elements) {\n  await this.syncInlineKanbanDom(element, file, tasks); // pass pre-scanned tasks\n}\n```\n\n---\n\n",
+        "title": "1. Serial N+1 File Reads — `tasks.js:20-33`",
+        "content": "\n`collectTasks` reads files **sequentially** in a loop. With 100+ markdown files, this is 100 serial `vault.read()` calls.\n\n```js\n// BAD: serial\nfor (const file of files) {\n  const text = await this.readMarkdownFileContent(file);\n  results.push(...this.scanTasksInContent(file, text));\n}\n\n// FIX: parallel\nconst entries = await Promise.all(\n  files.map(async file => {\n    const text = await this.readMarkdownFileContent(file);\n    return this.scanTasksInContent(file, text);\n  })\n);\nreturn this.sortTasksForKanban(entries.flat());\n```\n\n---\n\n",
         "level": 3
       },
       {
-        "title": "2. Unnecessary Re-renders",
-        "content": "\n**3 refresh cycles per checkbox click — `workspace.js:63`**\n\n```\nclick → 120ms refresh\n      → 650ms backup refresh  \n      → 1200ms backup-backup refresh\n```\n\nAll three run `syncInlineKanbanDom` (file read + task scan + innerHTML replace). The backups exist to handle editor debounce, but all three fire for every interaction.\n\n```js\n// FIX — single refresh with smarter invalidation flag\n// If 120ms refresh succeeded (file was readable), cancel the 650ms/1200ms timers\nasync function doRefresh(file) {\n  try {\n    await syncInlineKanbanDom(...);\n    clearPendingBackupTimers(file); // cancel 650ms + 1200ms if already succeeded\n  } catch { /* leave backups in place */ }\n}\n```\n\n**Filter UI rebuild on every sync — `inline-dom.js:198`**\n\n`renderInlineHeadingFilter()` regenerates the entire filter menu `innerHTML` every sync, even when headings haven't changed.\n\n```js\n// FIX — track last rendered headings, skip if unchanged\nconst headings = Array.from(new Set(tasks.map(t => t.heading || \"\")));\nconst cacheKey = headings.join(\"\\0\");\nif (element._lastHeadingFilterKey === cacheKey) return;\nelement._lastHeadingFilterKey = cacheKey;\nmenu.innerHTML = options.join(\"\");\n```\n\n---\n\n",
+        "title": "2. `STATUSES.indexOf()` in Sort Comparator — `state.js:50-69`",
+        "content": "\n`STATUSES.indexOf(a.status)` is O(n) and called **O(k log k)** times per sort (k = task count). Also `getTaskTouchedKey()` recomputed per comparison pair.\n\n```js\n// BAD: O(STATUSES.length) per comparison\nconst statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);\n\n// FIX: precompute before sort\nconst statusIndex = new Map(STATUSES.map((s, i) => [s, i]));\nconst touchedMap = new Map(items.map(t => [t, this.getTaskTouchedKey(t)]));\nreturn items.sort((a, b) => {\n  // ...use statusIndex.get(a.status) and touchedMap.get(a)\n});\n```\n\n---\n\n",
         "level": 3
       },
       {
-        "title": "3. Caching Opportunities",
-        "content": "\n**Sort key recomputed O(n log n) times — `state.js:50`**\n\n```js\n// CURRENT — getTaskTouchedKey() calls hashString(), runs per comparator call\ntasks.sort((a, b) => {\n  const diff = (touchedAt[getTaskTouchedKey(b)] || 0)\n             - (touchedAt[getTaskTouchedKey(a)] || 0);\n});\n```\n\n```js\n// FIX — precompute keys once before sort\nconst keyed = tasks.map(t => ({ task: t, key: getTaskTouchedKey(t) }));\nkeyed.sort((a, b) => (touchedAt[b.key] || 0) - (touchedAt[a.key] || 0));\nconst sorted = keyed.map(k => k.task);\n```\n\n**Text overflow detection reads layout on every sync — `inline-dom.js:69`**\n\n`getComputedStyle(text).lineHeight` + `text.scrollHeight` forces layout for every card on every refresh.\n\n```js\n// FIX — cache per card element, invalidate on text change\nfunction isTextOverflowing(text) {\n  if (text._overflowChecked) return text._isOverflowing;\n  const lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;\n  text._overflowing = text.scrollHeight > lineHeight * 3 + 2;\n  text._overflowChecked = true;\n  return text._overflowing;\n}\n// Bust cache only when card is rebuilt (set _overflowChecked = false)\n```\n\n---\n\n",
+        "title": "3. Redundant `visibleTasks.filter()` in `syncInlineKanbanDom` — `inline-dom.js:151-171`",
+        "content": "\nFilter by `status.key` runs **twice** — once to set innerHTML, once to count for headers.\n\n```js\n// BAD: two passes\nitems.map(task => this.formatKanbanCellItem(task)).join(\"\")\n// ...later...\nconst count = visibleTasks.filter(task => task.status.key === status.key).length;\n\n// FIX: group once\nconst byStatus = new Map(STATUSES.map(s => [s.key, []]));\nfor (const task of visibleTasks) byStatus.get(task.status.key)?.push(task);\n// then use byStatus.get(status.key) in both places\n```\n\n---\n\n",
         "level": 3
       },
       {
-        "title": "4. Memory Leaks",
-        "content": "\n**`taskKanbanTouchedAt` grows unbounded — `state.js:42`**\n\nEvery task status change writes to this object. Tasks get deleted, but their keys remain. Persisted to disk — file size grows over time.\n\n```js\n// FIX — prune on load and periodically\nfunction pruneTaskTouchedAt(touchedAt, activeTasks) {\n  const activeKeys = new Set(activeTasks.map(t => getTaskTouchedKey(t)));\n  for (const key of Object.keys(touchedAt)) {\n    if (!activeKeys.has(key)) delete touchedAt[key];\n  }\n}\n// Call after collectTasks() during plugin load and on vault.delete\n```\n\n**Event listeners bound without cleanup — `plugin.js:47-173`**\n\n`registerMarkdownPostProcessor` binds drag/click listeners per element. If Obsidian re-renders the element (live preview refresh), old listeners stay attached.\n\n```js\n// FIX — use AbortController per element\nconst ac = new AbortController();\nelement._kanbabort = ac;\ncolumn.addEventListener(\"dragover\", handler, { signal: ac.signal });\n// On element removal or re-render:\nelement._kanbabort?.abort();\n```\n\n**`inlineKanbanExpandedBlockIds` accumulates stale block IDs — `state.js:88`**\n\nBlock IDs for deleted tasks are never removed. Minor but accumulates across sessions.\n\n```js\n// FIX — intersect with current task block IDs after scan\nfunction pruneExpandedIds(expandedSet, currentTasks) {\n  const validIds = new Set(currentTasks.flatMap(t =>\n    [t.blockId, ...t.subtasks.map(s => s.blockId)].filter(Boolean)\n  ));\n  for (const id of expandedSet) {\n    if (!validIds.has(id)) expandedSet.delete(id);\n  }\n}\n```\n\n---\n\n",
+        "title": "4. `getComputedStyle` in Loop — `inline-dom.js:79`",
+        "content": "\n`getComputedStyle(text).lineHeight` forces style recalc for **every card** on every refresh. All cards share the same line-height.\n\n```js\n// BAD: per-card style recalc\nconst lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;\n\n// FIX: compute once outside loop\nconst cards = element.querySelectorAll(\".task-kanban-inline-card\");\nconst firstText = cards[0]?.querySelector(\".task-kanban-inline-text\");\nconst lineHeight = firstText\n  ? (Number.parseFloat(getComputedStyle(firstText).lineHeight) || 18)\n  : 18;\nfor (const card of cards) { /* use lineHeight */ }\n```\n\n---\n\n",
         "level": 3
       },
       {
-        "title": "5. Redundant Computations",
-        "content": "\n**Double `requestAnimationFrame` scroll restore — `plugin.js:76`, `inline-status.js:35`, `inline-delegates.js:225`**\n\n```js\n// CURRENT — double-nested, adds ~16ms extra latency\nwindow.requestAnimationFrame(() => window.requestAnimationFrame(() => {\n  editor.scrollTo?.(saved.left, saved.top);\n}));\n```\n\nDouble rAF is a pattern to wait for a paint cycle, but here it's after `innerHTML` replacement which doesn't need two frames. Single rAF is sufficient:\n\n```js\nwindow.requestAnimationFrame(() => editor.scrollTo?.(saved.left, saved.top));\n```\n\n**Two-pass block ID scan — `block-ids.js:20-49`**\n\nFirst pass collects existing IDs, second pass adds missing ones. Can be merged:\n\n```js\n// FIX — single pass: collect IDs + track which lines need them\nconst usedIds = new Set();\nconst needsId = [];\nfor (let i = 0; i < lines.length; i++) {\n  const id = lines[i].match(BLOCK_ID_RE)?.[1];\n  if (id) usedIds.add(id);\n  else if (isTaskLine(lines[i])) needsId.push(i);\n}\nfor (const lineIdx of needsId) {\n  lines[lineIdx] += \" ^\" + generateUniqueId(usedIds);\n}\n```\n\n---\n\n",
+        "title": "5. JSON Serialize/Deserialize for Deduplication — `inline-dom.js:228`",
+        "content": "\n```js\n// BAD: expensive & fragile (key order)\nconst headingObjects = Array.from(\n  new Set(tasks.map(t => JSON.stringify(t.heading || \"\")).map(s => JSON.parse(s)))\n);\n\n// FIX: deduplicate by text directly\nconst seen = new Set();\nconst headingObjects = [];\nfor (const task of tasks) {\n  const text = task.heading?.text || (typeof task.heading === \"string\" ? task.heading : \"\");\n  if (!seen.has(text)) { seen.add(text); headingObjects.push(task.heading || \"\"); }\n}\n```\n\n---\n\n",
         "level": 3
       },
       {
-        "title": "Priority Summary",
-        "content": "| Issue | Impact | Effort |\n|---|---|---|\n| N+1 status filtering (3 locations) | High | Low |\n| Pre-scan file once per refresh cycle | High | Medium |\n| Sort key precomputation | Medium | Low |\n| Unbounded `taskKanbanTouchedAt` growth | Medium | Low |\n| Triple refresh per checkbox | Medium | Medium |\n| Event listener cleanup via AbortController | Medium | Medium |\n| Filter UI diff before re-render | Low | Low |\n| Double rAF → single rAF | Low | Trivial |\n\nStart with status filtering — it's in 3 places, mechanical fix, and affects every board render.",
+        "title": "6. `syncInlineReadonlyState` Called Twice — `inline-dom.js:131,160`",
+        "content": "\nBoth lines 131 and 160 call it on the same `element` with the same `file.path`. Second call is pure waste — DOM already correct. Remove line 131 (or 160, keep whichever is last).\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "7. `buildHeadingTree` Sort is Discarded — `inline-dom.js:201-219`",
+        "content": "\nSorts `headings` by `localeCompare`, then builds a `Map` (which is insertion-ordered but into a deduplicated map, so sort result is irrelevant since it iterates the Map). The `.sort()` call is wasted CPU.\n\n```js\n// current: sorts, then deduplicates losing the sort\nconst headings = headingObjects.filter(Boolean).map(...).sort(...);\nconst uniqueHeadings = new Map(); // insertion order = sort order? Only if no dupes\n```\n\nIf sort is intentional, sort **after** deduplication:\n```js\nconst unique = [...new Map(headings.map(h => [h.text, h])).values()];\nunique.sort((a, b) => a.text.localeCompare(b.text));\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "8. Potential Memory Leak — `inlineKanbanRefreshTimers` / `inlineKanbanExpandedBlockIds`",
+        "content": "These Maps grow as files are opened. If plugin doesn't clear them on file close/unload, they hold references to deleted `TFile`-keyed data. Verify `onunload` clears both Maps (not visible in these files — check `js/plugin.js`).\n\n---\n\n**Highest impact to fix first:** #1 (serial reads) > #3 (redundant filter) > #2 (indexOf in sort) > #4 (getComputedStyle loop).",
         "level": 3
       }
     ],
     "codeBlocks": [
       {
         "language": "js",
-        "code": "// CURRENT — scans full task array 5 times\nfor (const status of STATUSES) {\n  const tasks = visibleTasks.filter(t => t.status.key === status.key);\n}"
+        "code": "// BAD: serial\nfor (const file of files) {\n  const text = await this.readMarkdownFileContent(file);\n  results.push(...this.scanTasksInContent(file, text));\n}\n\n// FIX: parallel\nconst entries = await Promise.all(\n  files.map(async file => {\n    const text = await this.readMarkdownFileContent(file);\n    return this.scanTasksInContent(file, text);\n  })\n);\nreturn this.sortTasksForKanban(entries.flat());"
       },
       {
         "language": "js",
-        "code": "// FIX — single pass groupBy\nconst byStatus = Object.groupBy(visibleTasks, t => t.status.key);\n// or for older targets:\nconst byStatus = visibleTasks.reduce((acc, t) => {\n  (acc[t.status.key] ??= []).push(t);\n  return acc;\n}, {});\nfor (const status of STATUSES) {\n  const tasks = byStatus[status.key] ?? [];\n}"
+        "code": "// BAD: O(STATUSES.length) per comparison\nconst statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);\n\n// FIX: precompute before sort\nconst statusIndex = new Map(STATUSES.map((s, i) => [s, i]));\nconst touchedMap = new Map(items.map(t => [t, this.getTaskTouchedKey(t)]));\nreturn items.sort((a, b) => {\n  // ...use statusIndex.get(a.status) and touchedMap.get(a)\n});"
       },
       {
         "language": "js",
-        "code": "// CURRENT — 5 querySelector calls per sync\nfor (const status of STATUSES) {\n  const column = element.querySelector(`.task-kanban-inline-column[data-status-key=\"${status.key}\"]`);\n}"
+        "code": "// BAD: two passes\nitems.map(task => this.formatKanbanCellItem(task)).join(\"\")\n// ...later...\nconst count = visibleTasks.filter(task => task.status.key === status.key).length;\n\n// FIX: group once\nconst byStatus = new Map(STATUSES.map(s => [s.key, []]));\nfor (const task of visibleTasks) byStatus.get(task.status.key)?.push(task);\n// then use byStatus.get(status.key) in both places"
       },
       {
         "language": "js",
-        "code": "// FIX — query once, index by key\nconst columns = Object.fromEntries(\n  Array.from(element.querySelectorAll(\".task-kanban-inline-column\"))\n    .map(el => [el.dataset.statusKey, el])\n);\nfor (const status of STATUSES) {\n  const column = columns[status.key];\n}"
+        "code": "// BAD: per-card style recalc\nconst lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;\n\n// FIX: compute once outside loop\nconst cards = element.querySelectorAll(\".task-kanban-inline-card\");\nconst firstText = cards[0]?.querySelector(\".task-kanban-inline-text\");\nconst lineHeight = firstText\n  ? (Number.parseFloat(getComputedStyle(firstText).lineHeight) || 18)\n  : 18;\nfor (const card of cards) { /* use lineHeight */ }"
       },
       {
         "language": "js",
-        "code": "// FIX — read once, pass to all blocks\nconst content = await this.app.vault.read(file);\nconst tasks = scanTasksInContent(content);\nfor (const element of elements) {\n  await this.syncInlineKanbanDom(element, file, tasks); // pass pre-scanned tasks\n}"
-      },
-      {
-        "language": "text",
-        "code": "click → 120ms refresh\n      → 650ms backup refresh  \n      → 1200ms backup-backup refresh"
+        "code": "// BAD: expensive & fragile (key order)\nconst headingObjects = Array.from(\n  new Set(tasks.map(t => JSON.stringify(t.heading || \"\")).map(s => JSON.parse(s)))\n);\n\n// FIX: deduplicate by text directly\nconst seen = new Set();\nconst headingObjects = [];\nfor (const task of tasks) {\n  const text = task.heading?.text || (typeof task.heading === \"string\" ? task.heading : \"\");\n  if (!seen.has(text)) { seen.add(text); headingObjects.push(task.heading || \"\"); }\n}"
       },
       {
         "language": "js",
-        "code": "// FIX — single refresh with smarter invalidation flag\n// If 120ms refresh succeeded (file was readable), cancel the 650ms/1200ms timers\nasync function doRefresh(file) {\n  try {\n    await syncInlineKanbanDom(...);\n    clearPendingBackupTimers(file); // cancel 650ms + 1200ms if already succeeded\n  } catch { /* leave backups in place */ }\n}"
+        "code": "// current: sorts, then deduplicates losing the sort\nconst headings = headingObjects.filter(Boolean).map(...).sort(...);\nconst uniqueHeadings = new Map(); // insertion order = sort order? Only if no dupes"
       },
       {
         "language": "js",
-        "code": "// FIX — track last rendered headings, skip if unchanged\nconst headings = Array.from(new Set(tasks.map(t => t.heading || \"\")));\nconst cacheKey = headings.join(\"\\0\");\nif (element._lastHeadingFilterKey === cacheKey) return;\nelement._lastHeadingFilterKey = cacheKey;\nmenu.innerHTML = options.join(\"\");"
-      },
-      {
-        "language": "js",
-        "code": "// CURRENT — getTaskTouchedKey() calls hashString(), runs per comparator call\ntasks.sort((a, b) => {\n  const diff = (touchedAt[getTaskTouchedKey(b)] || 0)\n             - (touchedAt[getTaskTouchedKey(a)] || 0);\n});"
-      },
-      {
-        "language": "js",
-        "code": "// FIX — precompute keys once before sort\nconst keyed = tasks.map(t => ({ task: t, key: getTaskTouchedKey(t) }));\nkeyed.sort((a, b) => (touchedAt[b.key] || 0) - (touchedAt[a.key] || 0));\nconst sorted = keyed.map(k => k.task);"
-      },
-      {
-        "language": "js",
-        "code": "// FIX — cache per card element, invalidate on text change\nfunction isTextOverflowing(text) {\n  if (text._overflowChecked) return text._isOverflowing;\n  const lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;\n  text._overflowing = text.scrollHeight > lineHeight * 3 + 2;\n  text._overflowChecked = true;\n  return text._overflowing;\n}\n// Bust cache only when card is rebuilt (set _overflowChecked = false)"
-      },
-      {
-        "language": "js",
-        "code": "// FIX — prune on load and periodically\nfunction pruneTaskTouchedAt(touchedAt, activeTasks) {\n  const activeKeys = new Set(activeTasks.map(t => getTaskTouchedKey(t)));\n  for (const key of Object.keys(touchedAt)) {\n    if (!activeKeys.has(key)) delete touchedAt[key];\n  }\n}\n// Call after collectTasks() during plugin load and on vault.delete"
-      },
-      {
-        "language": "js",
-        "code": "// FIX — use AbortController per element\nconst ac = new AbortController();\nelement._kanbabort = ac;\ncolumn.addEventListener(\"dragover\", handler, { signal: ac.signal });\n// On element removal or re-render:\nelement._kanbabort?.abort();"
-      },
-      {
-        "language": "js",
-        "code": "// FIX — intersect with current task block IDs after scan\nfunction pruneExpandedIds(expandedSet, currentTasks) {\n  const validIds = new Set(currentTasks.flatMap(t =>\n    [t.blockId, ...t.subtasks.map(s => s.blockId)].filter(Boolean)\n  ));\n  for (const id of expandedSet) {\n    if (!validIds.has(id)) expandedSet.delete(id);\n  }\n}"
-      },
-      {
-        "language": "js",
-        "code": "// CURRENT — double-nested, adds ~16ms extra latency\nwindow.requestAnimationFrame(() => window.requestAnimationFrame(() => {\n  editor.scrollTo?.(saved.left, saved.top);\n}));"
-      },
-      {
-        "language": "js",
-        "code": "window.requestAnimationFrame(() => editor.scrollTo?.(saved.left, saved.top));"
-      },
-      {
-        "language": "js",
-        "code": "// FIX — single pass: collect IDs + track which lines need them\nconst usedIds = new Set();\nconst needsId = [];\nfor (let i = 0; i < lines.length; i++) {\n  const id = lines[i].match(BLOCK_ID_RE)?.[1];\n  if (id) usedIds.add(id);\n  else if (isTaskLine(lines[i])) needsId.push(i);\n}\nfor (const lineIdx of needsId) {\n  lines[lineIdx] += \" ^\" + generateUniqueId(usedIds);\n}"
+        "code": "const unique = [...new Map(headings.map(h => [h.text, h])).values()];\nunique.sort((a, b) => a.text.localeCompare(b.text));"
       }
     ]
   },
-  "rawOutputPreview": "Comprehensive findings ready. Here's the actionable audit:\n\n---\n\n## Performance Audit: task-kanban\n\n---\n\n### 1. N+1 Query Patterns\n\n**Status filtering — O(5n) instead of O(n)**\n\nAppears in `view.js:116`, `inline-dom.js:148`, `markdown-block.js:60`:\n\n```js\n// CURRENT — scans full task array 5 times\nfor (const status of STATUSES) {\n  const tasks = visibleTasks.filter(t => t.status.key === status.key);\n}\n```\n\n```js\n// FIX — single pass groupBy\nconst byStatus = Object.groupBy(visibleTasks, t => t.status.key);\n// or for older targets:\nconst byStatus = visibleTasks.reduce((acc, t) => {\n  (acc[t.status.key] ??= []).push(t);\n  return acc;\n}, {});\nfor (const status of STATUSES) {\n  const tasks = byStatus[status.key] ?? [];\n}\n```\n\n**DOM query per status — `inline-dom.js:149`**\n\n```js\n// CURRENT — 5 querySelector calls per sync\nfor (const status of STATUSES) {\n  const column = element.querySelector(`.task-kanban-inline-column[data-status-key=\"${status.key}\"]`);\n}\n```\n\n```js\n// FIX — query once, index by key\nconst columns = Object.fromEntries(\n  Array.from(element.querySelectorAll(\".task-kanban-inline-column\"))\n    .map(el => [el.dataset.statusKey, el])\n);\nfor (const status of STATUSES) {\n  const column = columns[status.key];\n}\n```\n\n**File read per kanban block — `workspace.js:37`**\n\nIf a file has 3 `task-kanban` blocks, file content is read and `scanTasksInContent()` called 3 times.\n\n```js\n// FIX — read once, pass to all blocks\nconst content = await this.app.vault.read(file);\nconst tasks = scanTasksInContent(content);\nfor (const element of elements) {\n  await this.syncInlineKanbanDom(element, file, tasks); // pass pre-scanned tasks\n}\n```\n\n---\n\n### 2. Unnecessary Re-renders\n\n**3 refresh cycles per checkbox click — `workspace.js:63`**\n\n```\nclick → 120ms refresh\n      → 650ms backup refresh  \n      → 1200ms backup-backup refresh\n```\n\nAll three run `syncInlineKanbanDom` (file read + task scan + innerHTML replace). The backups exist to handle editor debounce, but all three fire for",
-  "rawOutputLength": 7271
+  "rawOutputPreview": "Here's the performance analysis:\n\n---\n\n## Performance Issues Found\n\n### 1. Serial N+1 File Reads — `tasks.js:20-33`\n\n`collectTasks` reads files **sequentially** in a loop. With 100+ markdown files, this is 100 serial `vault.read()` calls.\n\n```js\n// BAD: serial\nfor (const file of files) {\n  const text = await this.readMarkdownFileContent(file);\n  results.push(...this.scanTasksInContent(file, text));\n}\n\n// FIX: parallel\nconst entries = await Promise.all(\n  files.map(async file => {\n    const text = await this.readMarkdownFileContent(file);\n    return this.scanTasksInContent(file, text);\n  })\n);\nreturn this.sortTasksForKanban(entries.flat());\n```\n\n---\n\n### 2. `STATUSES.indexOf()` in Sort Comparator — `state.js:50-69`\n\n`STATUSES.indexOf(a.status)` is O(n) and called **O(k log k)** times per sort (k = task count). Also `getTaskTouchedKey()` recomputed per comparison pair.\n\n```js\n// BAD: O(STATUSES.length) per comparison\nconst statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);\n\n// FIX: precompute before sort\nconst statusIndex = new Map(STATUSES.map((s, i) => [s, i]));\nconst touchedMap = new Map(items.map(t => [t, this.getTaskTouchedKey(t)]));\nreturn items.sort((a, b) => {\n  // ...use statusIndex.get(a.status) and touchedMap.get(a)\n});\n```\n\n---\n\n### 3. Redundant `visibleTasks.filter()` in `syncInlineKanbanDom` — `inline-dom.js:151-171`\n\nFilter by `status.key` runs **twice** — once to set innerHTML, once to count for headers.\n\n```js\n// BAD: two passes\nitems.map(task => this.formatKanbanCellItem(task)).join(\"\")\n// ...later...\nconst count = visibleTasks.filter(task => task.status.key === status.key).length;\n\n// FIX: group once\nconst byStatus = new Map(STATUSES.map(s => [s.key, []]));\nfor (const task of visibleTasks) byStatus.get(task.status.key)?.push(task);\n// then use byStatus.get(status.key) in both places\n```\n\n---\n\n### 4. `getComputedStyle` in Loop — `inline-dom.js:79`\n\n`getComputedStyle(text).lineHeight` forces style recalc for **every card** on every ",
+  "rawOutputLength": 4452
 }

@@ -133,3 +133,30 @@
   color: var(--text-error);
   border-color: var(--text-error);
 }
+
+.markdown-rendered .task-kanban-heading-option,
+.cm-html-embed .task-kanban-heading-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px;
+  color: var(--text-normal);
+  font-size: 0.9em;
+}
+
+.markdown-rendered .task-kanban-heading-expand,
+.cm-html-embed .task-kanban-heading-expand {
+  min-width: 24px;
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.markdown-rendered .task-kanban-heading-expand:hover,
+.cm-html-embed .task-kanban-heading-expand:hover {
+  color: var(--text-normal);
+}

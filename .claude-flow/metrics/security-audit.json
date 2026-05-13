@@ -1,55 +1,15 @@
 {
-  "timestamp": "2026-05-13T13:58:54.814Z",
+  "timestamp": "2026-05-13T14:08:41.201Z",
   "mode": "headless",
   "workerType": "audit",
   "model": "haiku",
-  "durationMs": 51646,
-  "executionId": "audit_1778680683168_0jbbvf",
+  "durationMs": 42083,
+  "executionId": "audit_1778681279118_47upuv",
   "success": true,
   "findings": {
-    "vulnerabilities": [
-      {
-        "severity": "low",
-        "file": "js/plugin/format.js",
-        "line": 1,
-        "description": "HTML escaping functions exist but coverage is incomplete. Data attributes use escapeAttribute() properly, but task.text in js/view.js line 180 relies on Obsidian's MarkdownRenderer—if renderer changes, XSS risk emerges. Recommendation: Audit MarkdownRenderer.render() inputs."
-      },
-      {
-        "severity": "low",
-        "file": "js/plugin/block-ids.js",
-        "line": 48,
-        "description": "hashString() implements FNV-1a but with reduced collision resistance due to truncation to 10 chars. While collision checks prevent duplicates in usedIds, malicious content could cause hash flooding. Impact: performance degradation, not code execution. Acceptable for non-cryptographic use."
-      },
-      {
-        "severity": "low",
-        "file": "js/plugin/state.js",
-        "line": 1,
-        "description": "Plugin data stored in plaintext (inlineKanbanHeadingFilters, taskKanbanTouchedAt). No encryption. Contains file paths and timestamps. Risk is low since data is local-only, but consider: user vault paths may reveal sensitive directory structures. Recommendation: Document data handling in manifest."
-      },
-      {
-        "severity": "low",
-        "file": "js/plugin/markdown-block.js",
-        "line": 43,
-        "description": "Raw HTML string (calloutActions) injected into markdown callout. Currently hardcoded, but if calloutActions ever includes user-controlled data without escaping, XSS risk. Recommendation: Sanitize any future dynamic content added to calloutActions."
-      },
-      {
-        "severity": "low",
-        "file": "js/plugin/tasks.js",
-        "line": 40,
-        "description": "RegEx TASK_LINE_RE and BLOCK_ID_RE are simple but no validation of extracted values before use. If vault contains malformed markdown, unpredictable parsing could occur. Low impact since validation happens at render time via escaping."
-      }
-    ],
-    "riskScore": 15,
-    "recommendations": [
-      "Verify MarkdownRenderer.render() properly escapes task.text; audit Obsidian's rendering pipeline for edge cases with special characters.",
-      "Add explicit type validation for blockId format before use (whitelist alphanumeric + dash only).",
-      "Consider encrypting stored plugin data if vault paths or timestamps should remain private.",
-      "Document that calloutActions must remain static; add linter/test to prevent dynamic content injection.",
-      "Test escapeTableText() with Unicode, RTL text, and zero-width characters to confirm robustness.",
-      "Add Content Security Policy headers if this plugin ever loads external resources.",
-      "Audit file path handling in canEditInlineKanban() and findOpenMarkdownView() for path traversal (though Obsidian's API likely mitigates)."
-    ]
+    "parseError": true,
+    "rawOutput": "**Key Findings:**\n\n✅ **No Critical Issues:**\n- Proper HTML entity escaping in `formatKanbanCellItem()`, `formatInlineSubtasks()` \n- All user inputs (`task.text`, `task.heading`) are escaped before HTML insertion\n- No hardcoded secrets, SQL injection, or command injection vectors\n- Regex patterns safe from ReDoS attacks\n\n⚠️ **Low-Risk Issues:**\n1. Plugin lifecycle: No `onunload()` shown to clean up `inlineKanbanRefreshTimers`, element references, and event listeners\n2. Authorization is file-mode-dependent (source vs. preview) — acceptable for Obsidian's local vault context but not a strong security boundary\n\n**Trust Model:** This plugin operates entirely within Obsidian's vault and relies on Obsidian's file security. The code doesn't introduce additional vulnerabilities to that trust model.\n"
   },
-  "rawOutputPreview": "```json\n{\n  \"vulnerabilities\": [\n    {\n      \"severity\": \"low\",\n      \"file\": \"js/plugin/format.js\",\n      \"line\": 1,\n      \"description\": \"HTML escaping functions exist but coverage is incomplete. Data attributes use escapeAttribute() properly, but task.text in js/view.js line 180 relies on Obsidian's MarkdownRenderer—if renderer changes, XSS risk emerges. Recommendation: Audit MarkdownRenderer.render() inputs.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"file\": \"js/plugin/block-ids.js\",\n      \"line\": 48,\n      \"description\": \"hashString() implements FNV-1a but with reduced collision resistance due to truncation to 10 chars. While collision checks prevent duplicates in usedIds, malicious content could cause hash flooding. Impact: performance degradation, not code execution. Acceptable for non-cryptographic use.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"file\": \"js/plugin/state.js\",\n      \"line\": 1,\n      \"description\": \"Plugin data stored in plaintext (inlineKanbanHeadingFilters, taskKanbanTouchedAt). No encryption. Contains file paths and timestamps. Risk is low since data is local-only, but consider: user vault paths may reveal sensitive directory structures. Recommendation: Document data handling in manifest.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"file\": \"js/plugin/markdown-block.js\",\n      \"line\": 43,\n      \"description\": \"Raw HTML string (calloutActions) injected into markdown callout. Currently hardcoded, but if calloutActions ever includes user-controlled data without escaping, XSS risk. Recommendation: Sanitize any future dynamic content added to calloutActions.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"file\": \"js/plugin/tasks.js\",\n      \"line\": 40,\n      \"description\": \"RegEx TASK_LINE_RE and BLOCK_ID_RE are simple but no validation of extracted values before use. If vault contains malformed markdown, unpredictable parsing could occur. Low impact since validation happens at render time via escaping.\"\n    }\n  ],\n  \"riskScore\": 15,\n  \"recommen",
-  "rawOutputLength": 3270
+  "rawOutputPreview": "**Key Findings:**\n\n✅ **No Critical Issues:**\n- Proper HTML entity escaping in `formatKanbanCellItem()`, `formatInlineSubtasks()` \n- All user inputs (`task.text`, `task.heading`) are escaped before HTML insertion\n- No hardcoded secrets, SQL injection, or command injection vectors\n- Regex patterns safe from ReDoS attacks\n\n⚠️ **Low-Risk Issues:**\n1. Plugin lifecycle: No `onunload()` shown to clean up `inlineKanbanRefreshTimers`, element references, and event listeners\n2. Authorization is file-mode-dependent (source vs. preview) — acceptable for Obsidian's local vault context but not a strong security boundary\n\n**Trust Model:** This plugin operates entirely within Obsidian's vault and relies on Obsidian's file security. The code doesn't introduce additional vulnerabilities to that trust model.\n",
+  "rawOutputLength": 801
 }

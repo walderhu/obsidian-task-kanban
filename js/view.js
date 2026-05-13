@@ -135,7 +135,8 @@ class TaskKanbanView extends ItemView {
   getVisibleTasks() {
     if (!this.query) return this.tasks;
     return this.tasks.filter((task) => {
-      const haystack = `${task.text} ${task.file.path} ${task.heading}`.toLowerCase();
+      const headingText = typeof task.heading === "string" ? task.heading : task.heading?.text || "";
+      const haystack = `${task.text} ${task.file.path} ${headingText}`.toLowerCase();
       return haystack.includes(this.query);
     });
   }
@@ -152,7 +153,8 @@ class TaskKanbanView extends ItemView {
 
     const meta = card.createDiv({ cls: "task-kanban-card-meta" });
     meta.createSpan({ cls: "task-kanban-card-file", text: task.file.basename });
-    if (task.heading) meta.createSpan({ cls: "task-kanban-card-heading", text: task.heading });
+    const headingText = typeof task.heading === "string" ? task.heading : task.heading?.text || "";
+    if (headingText) meta.createSpan({ cls: "task-kanban-card-heading", text: headingText });
     meta.createSpan({ cls: "task-kanban-card-line", text: `:${task.line + 1}` });
 
     const actions = card.createDiv({ cls: "task-kanban-card-actions" });
