@@ -30,17 +30,21 @@ async setTaskStatus(task, status) {
       { line: task.line, ch: 0 },
       { line: task.line, ch: line.length }
     );
+    await this.rememberTaskTouched(task);
     return;
   }
 
+  let changed = false;
   await this.app.vault.process(task.file, (content) => {
     const lines = content.split(/\r?\n/);
     const line = lines[task.line] || "";
     const nextLine = line.replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
     if (nextLine === line) return content;
+    changed = true;
     lines[task.line] = nextLine;
     return lines.join("\n");
   });
+  if (changed) await this.rememberTaskTouched(task);
 },
 
 async openTask(task) {

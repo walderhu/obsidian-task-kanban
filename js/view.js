@@ -59,6 +59,27 @@ class TaskKanbanView extends ItemView {
       this.renderBoard();
     });
 
+    const sortGroup = controls.createDiv({ cls: "task-kanban-sort", attr: { role: "radiogroup", "aria-label": "Сортировка" } });
+    this.sortInputs = [];
+    [
+      ["default", "По умолчанию"],
+      ["touched", "Последние"],
+      ["priority", "Приоритет"]
+    ].forEach(([value, label]) => {
+      const option = sortGroup.createEl("label", { cls: "task-kanban-sort-option" });
+      const input = option.createEl("input", {
+        attr: { type: "radio", name: "task-kanban-side-sort", value }
+      });
+      input.checked = (this.plugin.taskKanbanSortMode || "default") === value;
+      input.addEventListener("change", async () => {
+        if (!input.checked) return;
+        await this.plugin.setTaskKanbanSortMode(value);
+        await this.reload();
+      });
+      this.sortInputs.push(input);
+      option.createSpan({ text: label });
+    });
+
     const scopeButton = controls.createEl("button", {
       cls: "task-kanban-button",
       text: "Текущий файл"
@@ -86,6 +107,9 @@ class TaskKanbanView extends ItemView {
   renderBoard() {
     if (!this.boardEl) return;
     this.boardEl.empty();
+    for (const input of this.sortInputs || []) {
+      input.checked = input.value === (this.plugin.taskKanbanSortMode || "default");
+    }
     const visibleTasks = this.getVisibleTasks();
     this.countEl.setText(`${visibleTasks.length} задач`);
 

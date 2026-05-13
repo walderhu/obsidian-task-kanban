@@ -24,23 +24,46 @@ bindInlineKanbanDelegates(element, sourcePath) {
   for (const eventName of ["pointerdown", "mousedown", "mouseup", "click"]) {
     element.addEventListener(eventName, (event) => {
       const filter = event.target.closest(".task-kanban-inline-filter");
-      if (!filter) return;
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      if (eventName !== "click") return;
-      const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
-      if (!toggle) return;
-      event.preventDefault();
-      const wasCollapsed = this.expandInlineKanbanCallout(filter);
-      const expanded = wasCollapsed || !filter.classList.contains("is-open");
-      filter.classList.toggle("is-open", expanded);
-      toggle.setAttribute("aria-expanded", String(expanded));
+      if (filter) {
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        if (eventName !== "click") return;
+        const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
+        if (!toggle) return;
+        event.preventDefault();
+        const wasCollapsed = this.expandInlineKanbanCallout(filter);
+        const expanded = wasCollapsed || !filter.classList.contains("is-open");
+        filter.classList.toggle("is-open", expanded);
+        toggle.setAttribute("aria-expanded", String(expanded));
+        return;
+      }
+      const sort = event.target.closest(".task-kanban-inline-sort");
+      if (sort) {
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        if (eventName !== "click") return;
+        const toggle = event.target.closest(".task-kanban-inline-sort-toggle");
+        if (!toggle) return;
+        event.preventDefault();
+        const expanded = !sort.classList.contains("is-open");
+        sort.classList.toggle("is-open", expanded);
+        toggle.setAttribute("aria-expanded", String(expanded));
+        return;
+      }
     }, true);
   }
 
   this.registerDomEvent(document, "click", (event) => {
     if (event.target.closest(".task-kanban-inline-filter")) return;
     this.closeInlineFilters(element);
+  });
+
+  this.registerDomEvent(document, "click", (event) => {
+    if (event.target.closest(".task-kanban-inline-sort")) return;
+    for (const s of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
+      s.classList.remove("is-open");
+      s.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
+    }
   });
 
   element.addEventListener("click", async (event) => {
@@ -133,10 +156,7 @@ bindInlineKanbanDelegates(element, sourcePath) {
       await this.toggleInlineSubtaskStatus(card, sourcePath);
       return;
     }
-    if (card.classList.contains("has-overflowing-text")) {
-      this.toggleInlineCardText(card);
-      return;
-    }
+    if (card.classList.contains("has-overflowing-text")) this.toggleInlineCardText(card);
     this.toggleInlineSubtasks(card);
   });
 
@@ -210,6 +230,16 @@ bindInlineKanbanDelegates(element, sourcePath) {
   });
 
   element.addEventListener("change", async (event) => {
+    const sortInput = event.target.closest(".task-kanban-inline-sort-menu input[type='radio']");
+    if (sortInput && element.contains(sortInput)) {
+      event.preventDefault();
+      event.stopPropagation();
+      await this.saveInlineSortSelection(sortInput);
+      const file = this.app.vault.getAbstractFileByPath(sourcePath);
+      if (file instanceof TFile) await this.syncInlineKanbanDom(element, file);
+      return;
+    }
+
     const input = event.target.closest(".task-kanban-inline-filter-menu input[type='checkbox']");
     if (!input || !element.contains(input)) return;
     event.preventDefault();

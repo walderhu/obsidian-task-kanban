@@ -58,10 +58,29 @@ handleMarkdownTaskStateChanged(file, delay = INLINE_KANBAN_CHECKBOX_REFRESH_DELA
 handleEditorCheckboxEvent(event) {
   if (!this.isMarkdownCheckboxEventTarget(event.target)) return;
   const file = this.app.workspace.getActiveFile();
+  this.rememberActiveEditorTaskTouched(file);
   this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
   window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), INLINE_KANBAN_EDITOR_REFRESH_DELAY);
   // Backup refresh: Obsidian may write the file to disk later than the event fires
   window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), 1200);
+},
+
+rememberActiveEditorTaskTouched(file) {
+  if (!(file instanceof TFile) || file.extension !== "md") return;
+  const view = this.findOpenMarkdownView(file);
+  const line = view?.editor?.getCursor?.()?.line;
+  if (!Number.isInteger(line)) return;
+  const raw = view.editor.getLine?.(line) || "";
+  const taskMatch = raw.match(TASK_LINE_RE);
+  if (!taskMatch) return;
+  const rawText = taskMatch[3].trim();
+  this.rememberTaskTouched({
+    file,
+    line,
+    raw,
+    blockId: rawText.match(BLOCK_ID_RE)?.[1] || "",
+    text: rawText.replace(BLOCK_ID_RE, "").trim()
+  });
 },
 
 isMarkdownCheckboxEventTarget(target) {

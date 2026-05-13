@@ -19,7 +19,53 @@ const {
 module.exports = {
 async savePluginData() {
   await this.saveData({
-    headingFilters: this.inlineKanbanHeadingFilters || {}
+    headingFilters: this.inlineKanbanHeadingFilters || {},
+    sortMode: this.taskKanbanSortMode || "default",
+    touchedAt: this.taskKanbanTouchedAt || {}
+  });
+},
+
+async setTaskKanbanSortMode(sortMode) {
+  this.taskKanbanSortMode = ["default", "touched", "priority"].includes(sortMode)
+    ? sortMode
+    : "default";
+  await this.savePluginData();
+  this.refreshOpenViews();
+},
+
+getTaskTouchedKey(task) {
+  if (!task?.file?.path) return "";
+  if (task.blockId) return `${task.file.path}#${task.blockId}`;
+  return `${task.file.path}:${task.line}:${this.hashString(task.raw || task.text || "")}`;
+},
+
+async rememberTaskTouched(task) {
+  const key = this.getTaskTouchedKey(task);
+  if (!key) return;
+  this.taskKanbanTouchedAt ||= {};
+  this.taskKanbanTouchedAt[key] = Date.now();
+  await this.savePluginData();
+},
+
+sortTasksForKanban(tasks) {
+  const items = [...tasks];
+  const baseCompare = (a, b) => {
+    const statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);
+    if (statusDiff) return statusDiff;
+    return a.file.path.localeCompare(b.file.path) || a.line - b.line;
+  };
+  const sortMode = this.taskKanbanSortMode || "default";
+  return items.sort((a, b) => {
+    if (sortMode === "touched") {
+      const touchedDiff = (this.taskKanbanTouchedAt?.[this.getTaskTouchedKey(b)] || 0)
+        - (this.taskKanbanTouchedAt?.[this.getTaskTouchedKey(a)] || 0);
+      if (touchedDiff) return touchedDiff;
+    }
+    if (sortMode === "priority") {
+      const priorityDiff = (b.priority || 0) - (a.priority || 0);
+      if (priorityDiff) return priorityDiff;
+    }
+    return baseCompare(a, b);
   });
 },
 

@@ -29,11 +29,7 @@ async collectTasks(activeFileOnly) {
     results.push(...this.scanTasksInContent(file, text));
   }
 
-  return results.sort((a, b) => {
-    const statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);
-    if (statusDiff) return statusDiff;
-    return a.file.path.localeCompare(b.file.path) || a.line - b.line;
-  });
+  return this.sortTasksForKanban(results);
 },
 
 async readMarkdownFileContent(file) {
@@ -71,6 +67,7 @@ scanTasksInContent(file, content) {
     const marker = taskMatch[2];
     const status = STATUS_BY_MARKER.get(marker) || STATUSES[0];
     const rawText = taskMatch[3].trim();
+    const priority = Array.from(rawText.match(/^(🔥+)/u)?.[1] || "").length;
     const blockId = rawText.match(BLOCK_ID_RE)?.[1] || "";
     const task = {
       file,
@@ -81,6 +78,7 @@ scanTasksInContent(file, content) {
       marker,
       blockId,
       text: rawText.replace(BLOCK_ID_RE, "").trim(),
+      priority,
       status,
       heading,
       subtasks: []

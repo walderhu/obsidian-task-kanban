@@ -109,6 +109,27 @@
           this.renderBoard();
         });
     
+        const sortGroup = controls.createDiv({ cls: "task-kanban-sort", attr: { role: "radiogroup", "aria-label": "Сортировка" } });
+        this.sortInputs = [];
+        [
+          ["default", "По умолчанию"],
+          ["touched", "Последние"],
+          ["priority", "Приоритет"]
+        ].forEach(([value, label]) => {
+          const option = sortGroup.createEl("label", { cls: "task-kanban-sort-option" });
+          const input = option.createEl("input", {
+            attr: { type: "radio", name: "task-kanban-side-sort", value }
+          });
+          input.checked = (this.plugin.taskKanbanSortMode || "default") === value;
+          input.addEventListener("change", async () => {
+            if (!input.checked) return;
+            await this.plugin.setTaskKanbanSortMode(value);
+            await this.reload();
+          });
+          this.sortInputs.push(input);
+          option.createSpan({ text: label });
+        });
+    
         const scopeButton = controls.createEl("button", {
           cls: "task-kanban-button",
           text: "Текущий файл"
@@ -136,6 +157,9 @@
       renderBoard() {
         if (!this.boardEl) return;
         this.boardEl.empty();
+        for (const input of this.sortInputs || []) {
+          input.checked = input.value === (this.plugin.taskKanbanSortMode || "default");
+        }
         const visibleTasks = this.getVisibleTasks();
         this.countEl.setText(`${visibleTasks.length} задач`);
     
@@ -218,6 +242,8 @@
       this.inlineKanbanExpandedBlockIds = new Map();
       const savedData = await this.loadData();
       this.inlineKanbanHeadingFilters = savedData?.headingFilters || {};
+      this.taskKanbanSortMode = savedData?.sortMode || "default";
+      this.taskKanbanTouchedAt = savedData?.touchedAt || {};
     
       this.registerView(VIEW_TYPE_TASK_KANBAN, (leaf) => new TaskKanbanView(leaf, this));
     
@@ -328,6 +354,7 @@
               await this.toggleInlineSubtaskStatus(card, context.sourcePath);
               return;
             }
+            if (card.classList.contains("has-overflowing-text")) this.toggleInlineCardText(card);
             this.toggleInlineSubtasks(card);
           });
         }
@@ -458,7 +485,53 @@
     module.exports = {
     async savePluginData() {
       await this.saveData({
-        headingFilters: this.inlineKanbanHeadingFilters || {}
+        headingFilters: this.inlineKanbanHeadingFilters || {},
+        sortMode: this.taskKanbanSortMode || "default",
+        touchedAt: this.taskKanbanTouchedAt || {}
+      });
+    },
+    
+    async setTaskKanbanSortMode(sortMode) {
+      this.taskKanbanSortMode = ["default", "touched", "priority"].includes(sortMode)
+        ? sortMode
+        : "default";
+      await this.savePluginData();
+      this.refreshOpenViews();
+    },
+    
+    getTaskTouchedKey(task) {
+      if (!task?.file?.path) return "";
+      if (task.blockId) return `${task.file.path}#${task.blockId}`;
+      return `${task.file.path}:${task.line}:${this.hashString(task.raw || task.text || "")}`;
+    },
+    
+    async rememberTaskTouched(task) {
+      const key = this.getTaskTouchedKey(task);
+      if (!key) return;
+      this.taskKanbanTouchedAt ||= {};
+      this.taskKanbanTouchedAt[key] = Date.now();
+      await this.savePluginData();
+    },
+    
+    sortTasksForKanban(tasks) {
+      const items = [...tasks];
+      const baseCompare = (a, b) => {
+        const statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);
+        if (statusDiff) return statusDiff;
+        return a.file.path.localeCompare(b.file.path) || a.line - b.line;
+      };
+      const sortMode = this.taskKanbanSortMode || "default";
+      return items.sort((a, b) => {
+        if (sortMode === "touched") {
+          const touchedDiff = (this.taskKanbanTouchedAt?.[this.getTaskTouchedKey(b)] || 0)
+            - (this.taskKanbanTouchedAt?.[this.getTaskTouchedKey(a)] || 0);
+          if (touchedDiff) return touchedDiff;
+        }
+        if (sortMode === "priority") {
+          const priorityDiff = (b.priority || 0) - (a.priority || 0);
+          if (priorityDiff) return priorityDiff;
+        }
+        return baseCompare(a, b);
       });
     },
     
@@ -647,20 +720,23 @@
         const preEditState = rebuildKanban ? this.captureActiveEditorState(file) : null;
         const changed = this.updateTaskStatusInEditor(file, openView.editor, blockId, status, includeSubtasks, fallbackLine);
         if (changed) {
+          await this.rememberTaskTouched({ file, line: fallbackLine ?? 0, blockId, raw: blockId || "" });
           if (rebuildKanban && preEditState) {
             // Pass editor only — cursor/scroll intentionally not restored here to avoid
             // jumping to the task line when cursor was previously set by openInlineTask
             this.refreshInlineKanbanBlockInEditor(file, { editor: preEditState.editor, cursor: null, scrollInfo: null });
           }
-          return;
+          return true;
         }
       }
     
+      let changedTask = false;
       await this.app.vault.process(file, (content) => {
         const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
         const lines = contentWithBlockIds.split(/\r?\n/);
         const changed = this.updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks, fallbackLine);
         if (!changed) return contentWithBlockIds;
+        changedTask = true;
     
         const nextContent = lines.join("\n");
         if (!rebuildKanban) return nextContent;
@@ -668,6 +744,10 @@
         const block = this.buildKanbanBlock(file, tasks);
         return this.replaceOrInsertKanbanBlock(nextContent, block);
       });
+      if (changedTask) {
+        await this.rememberTaskTouched({ file, line: fallbackLine ?? 0, blockId, raw: blockId || "" });
+      }
+      return changedTask;
     },
     
     updateTaskStatusInEditor(file, editor, blockId, status, includeSubtasks, fallbackLine = null) {
@@ -799,10 +879,29 @@
     handleEditorCheckboxEvent(event) {
       if (!this.isMarkdownCheckboxEventTarget(event.target)) return;
       const file = this.app.workspace.getActiveFile();
+      this.rememberActiveEditorTaskTouched(file);
       this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
       window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), INLINE_KANBAN_EDITOR_REFRESH_DELAY);
       // Backup refresh: Obsidian may write the file to disk later than the event fires
       window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), 1200);
+    },
+    
+    rememberActiveEditorTaskTouched(file) {
+      if (!(file instanceof TFile) || file.extension !== "md") return;
+      const view = this.findOpenMarkdownView(file);
+      const line = view?.editor?.getCursor?.()?.line;
+      if (!Number.isInteger(line)) return;
+      const raw = view.editor.getLine?.(line) || "";
+      const taskMatch = raw.match(TASK_LINE_RE);
+      if (!taskMatch) return;
+      const rawText = taskMatch[3].trim();
+      this.rememberTaskTouched({
+        file,
+        line,
+        raw,
+        blockId: rawText.match(BLOCK_ID_RE)?.[1] || "",
+        text: rawText.replace(BLOCK_ID_RE, "").trim()
+      });
     },
     
     isMarkdownCheckboxEventTarget(target) {
@@ -900,23 +999,46 @@
       for (const eventName of ["pointerdown", "mousedown", "mouseup", "click"]) {
         element.addEventListener(eventName, (event) => {
           const filter = event.target.closest(".task-kanban-inline-filter");
-          if (!filter) return;
-          event.stopPropagation();
-          event.stopImmediatePropagation();
-          if (eventName !== "click") return;
-          const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
-          if (!toggle) return;
-          event.preventDefault();
-          const wasCollapsed = this.expandInlineKanbanCallout(filter);
-          const expanded = wasCollapsed || !filter.classList.contains("is-open");
-          filter.classList.toggle("is-open", expanded);
-          toggle.setAttribute("aria-expanded", String(expanded));
+          if (filter) {
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            if (eventName !== "click") return;
+            const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
+            if (!toggle) return;
+            event.preventDefault();
+            const wasCollapsed = this.expandInlineKanbanCallout(filter);
+            const expanded = wasCollapsed || !filter.classList.contains("is-open");
+            filter.classList.toggle("is-open", expanded);
+            toggle.setAttribute("aria-expanded", String(expanded));
+            return;
+          }
+          const sort = event.target.closest(".task-kanban-inline-sort");
+          if (sort) {
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            if (eventName !== "click") return;
+            const toggle = event.target.closest(".task-kanban-inline-sort-toggle");
+            if (!toggle) return;
+            event.preventDefault();
+            const expanded = !sort.classList.contains("is-open");
+            sort.classList.toggle("is-open", expanded);
+            toggle.setAttribute("aria-expanded", String(expanded));
+            return;
+          }
         }, true);
       }
     
       this.registerDomEvent(document, "click", (event) => {
         if (event.target.closest(".task-kanban-inline-filter")) return;
         this.closeInlineFilters(element);
+      });
+    
+      this.registerDomEvent(document, "click", (event) => {
+        if (event.target.closest(".task-kanban-inline-sort")) return;
+        for (const s of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
+          s.classList.remove("is-open");
+          s.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
+        }
       });
     
       element.addEventListener("click", async (event) => {
@@ -1009,10 +1131,7 @@
           await this.toggleInlineSubtaskStatus(card, sourcePath);
           return;
         }
-        if (card.classList.contains("has-overflowing-text")) {
-          this.toggleInlineCardText(card);
-          return;
-        }
+        if (card.classList.contains("has-overflowing-text")) this.toggleInlineCardText(card);
         this.toggleInlineSubtasks(card);
       });
     
@@ -1086,6 +1205,16 @@
       });
     
       element.addEventListener("change", async (event) => {
+        const sortInput = event.target.closest(".task-kanban-inline-sort-menu input[type='radio']");
+        if (sortInput && element.contains(sortInput)) {
+          event.preventDefault();
+          event.stopPropagation();
+          await this.saveInlineSortSelection(sortInput);
+          const file = this.app.vault.getAbstractFileByPath(sourcePath);
+          if (file instanceof TFile) await this.syncInlineKanbanDom(element, file);
+          return;
+        }
+    
         const input = event.target.closest(".task-kanban-inline-filter-menu input[type='checkbox']");
         if (!input || !element.contains(input)) return;
         event.preventDefault();
@@ -1140,6 +1269,10 @@
         this.inlineKanbanHeadingFilters[sourcePath] = selected;
       }
       await this.savePluginData();
+    },
+    
+    async saveInlineSortSelection(input) {
+      await this.setTaskKanbanSortMode(input?.value || "default");
     },
     
     closeInlineFilters(element) {
@@ -1250,8 +1383,9 @@
       const tasks = this.scanTasksInContent(file, content);
       this.ensureInlineFilterControl(element);
       this.renderInlineHeadingFilter(element, tasks);
+      this.renderInlineSortMenu(element);
       const selectedHeadings = this.getInlineSelectedHeadings(element, tasks);
-      const visibleTasks = tasks.filter((task) => selectedHeadings.has(task.heading || ""));
+      const visibleTasks = this.sortTasksForKanban(tasks.filter((task) => selectedHeadings.has(task.heading || "")));
     
       for (const status of STATUSES) {
         const column = element.querySelector(`.task-kanban-inline-column[data-status-key="${status.key}"]`);
@@ -1285,6 +1419,13 @@
         filter.innerHTML = '<button class="task-kanban-inline-action task-kanban-inline-filter-toggle" type="button" aria-expanded="false">Фильтр</button><span class="task-kanban-inline-filter-menu"></span>';
         actions.prepend(filter);
       }
+      if (!actions.querySelector(".task-kanban-inline-sort")) {
+        const sort = document.createElement("span");
+        sort.className = "task-kanban-inline-sort";
+        sort.innerHTML = '<button class="task-kanban-inline-action task-kanban-inline-sort-toggle" type="button" aria-expanded="false">Сортировка</button><span class="task-kanban-inline-sort-menu"></span>';
+        const filter = actions.querySelector(".task-kanban-inline-filter");
+        filter ? filter.insertAdjacentElement("afterend", sort) : actions.prepend(sort);
+      }
       if (!actions.querySelector(".task-kanban-inline-expand-toggle")) {
         const expandButton = document.createElement("button");
         expandButton.className = "task-kanban-inline-action task-kanban-inline-expand-toggle";
@@ -1313,7 +1454,6 @@
           : new Set(headings);
       menu.dataset.initialized = "true";
       const allChecked = headings.length > 0 && headings.every((heading) => selected.has(heading));
-    
       const options = [
         `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox" ${allChecked ? "checked" : ""}>Все</label>`,
         ...headings.map((heading) => {
@@ -1322,6 +1462,21 @@
           return `<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${this.escapeAttribute(heading)}" ${checked}>${this.escapeTableText(label)}</label>`;
         })
       ];
+      menu.innerHTML = options.join("");
+    },
+    
+    renderInlineSortMenu(element) {
+      const menu = element.querySelector(".task-kanban-inline-sort-menu");
+      if (!menu) return;
+      const sourcePath = element.dataset.taskKanbanSourcePath || "global";
+      const options = [
+        ["default", "По умолчанию"],
+        ["touched", "Последние сверху"],
+        ["priority", "По приоритету 🔥"]
+      ].map(([value, label]) => {
+        const checked = (this.taskKanbanSortMode || "default") === value ? "checked" : "";
+        return `<label class="task-kanban-inline-sort-option"><input type="radio" name="task-kanban-sort-${this.escapeAttribute(sourcePath)}" value="${this.escapeAttribute(value)}" ${checked}>${this.escapeTableText(label)}</label>`;
+      });
       menu.innerHTML = options.join("");
     },
     
@@ -1523,11 +1678,7 @@
         results.push(...this.scanTasksInContent(file, text));
       }
     
-      return results.sort((a, b) => {
-        const statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);
-        if (statusDiff) return statusDiff;
-        return a.file.path.localeCompare(b.file.path) || a.line - b.line;
-      });
+      return this.sortTasksForKanban(results);
     },
     
     async readMarkdownFileContent(file) {
@@ -1565,6 +1716,7 @@
         const marker = taskMatch[2];
         const status = STATUS_BY_MARKER.get(marker) || STATUSES[0];
         const rawText = taskMatch[3].trim();
+        const priority = Array.from(rawText.match(/^(🔥+)/u)?.[1] || "").length;
         const blockId = rawText.match(BLOCK_ID_RE)?.[1] || "";
         const task = {
           file,
@@ -1575,6 +1727,7 @@
           marker,
           blockId,
           text: rawText.replace(BLOCK_ID_RE, "").trim(),
+          priority,
           status,
           heading,
           subtasks: []
@@ -1667,8 +1820,9 @@
     },
     
     buildKanbanBlock(file, tasks) {
+      const sortedTasks = this.sortTasksForKanban(tasks);
       const columns = STATUSES.map((status) => {
-        const items = tasks.filter((task) => task.status.key === status.key);
+        const items = sortedTasks.filter((task) => task.status.key === status.key);
         const marker = "<span class=\"task-kanban-inline-marker\"></span>";
         const content = items.length
           ? items.map((task) => this.formatKanbanCellItem(task)).join("")
@@ -1924,17 +2078,21 @@
           { line: task.line, ch: 0 },
           { line: task.line, ch: line.length }
         );
+        await this.rememberTaskTouched(task);
         return;
       }
     
+      let changed = false;
       await this.app.vault.process(task.file, (content) => {
         const lines = content.split(/\r?\n/);
         const line = lines[task.line] || "";
         const nextLine = line.replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
         if (nextLine === line) return content;
+        changed = true;
         lines[task.line] = nextLine;
         return lines.join("\n");
       });
+      if (changed) await this.rememberTaskTouched(task);
     },
     
     async openTask(task) {

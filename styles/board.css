@@ -53,6 +53,37 @@
   padding: 0 9px;
 }
 
+.task-kanban-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-kanban-sort-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 0.86em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.task-kanban-sort-option:has(input:checked) {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+
+.task-kanban-sort-option input {
+  margin: 0;
+}
+
 .task-kanban-button,
 .task-kanban-status-button {
   height: 30px;

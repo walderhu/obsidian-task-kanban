@@ -15,6 +15,8 @@ async onload() {
   this.inlineKanbanExpandedBlockIds = new Map();
   const savedData = await this.loadData();
   this.inlineKanbanHeadingFilters = savedData?.headingFilters || {};
+  this.taskKanbanSortMode = savedData?.sortMode || "default";
+  this.taskKanbanTouchedAt = savedData?.touchedAt || {};
 
   this.registerView(VIEW_TYPE_TASK_KANBAN, (leaf) => new TaskKanbanView(leaf, this));
 
@@ -125,6 +127,7 @@ async onload() {
           await this.toggleInlineSubtaskStatus(card, context.sourcePath);
           return;
         }
+        if (card.classList.contains("has-overflowing-text")) this.toggleInlineCardText(card);
         this.toggleInlineSubtasks(card);
       });
     }

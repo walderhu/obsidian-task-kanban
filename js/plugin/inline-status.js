@@ -79,20 +79,23 @@ async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban 
     const preEditState = rebuildKanban ? this.captureActiveEditorState(file) : null;
     const changed = this.updateTaskStatusInEditor(file, openView.editor, blockId, status, includeSubtasks, fallbackLine);
     if (changed) {
+      await this.rememberTaskTouched({ file, line: fallbackLine ?? 0, blockId, raw: blockId || "" });
       if (rebuildKanban && preEditState) {
         // Pass editor only — cursor/scroll intentionally not restored here to avoid
         // jumping to the task line when cursor was previously set by openInlineTask
         this.refreshInlineKanbanBlockInEditor(file, { editor: preEditState.editor, cursor: null, scrollInfo: null });
       }
-      return;
+      return true;
     }
   }
 
+  let changedTask = false;
   await this.app.vault.process(file, (content) => {
     const contentWithBlockIds = this.ensureTaskBlockIds(file, content);
     const lines = contentWithBlockIds.split(/\r?\n/);
     const changed = this.updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks, fallbackLine);
     if (!changed) return contentWithBlockIds;
+    changedTask = true;
 
     const nextContent = lines.join("\n");
     if (!rebuildKanban) return nextContent;
@@ -100,6 +103,10 @@ async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban 
     const block = this.buildKanbanBlock(file, tasks);
     return this.replaceOrInsertKanbanBlock(nextContent, block);
   });
+  if (changedTask) {
+    await this.rememberTaskTouched({ file, line: fallbackLine ?? 0, blockId, raw: blockId || "" });
+  }
+  return changedTask;
 },
 
 updateTaskStatusInEditor(file, editor, blockId, status, includeSubtasks, fallbackLine = null) {

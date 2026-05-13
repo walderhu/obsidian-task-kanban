@@ -29,6 +29,10 @@ async saveInlineHeadingFilterSelection(sourcePath, menu) {
   await this.savePluginData();
 },
 
+async saveInlineSortSelection(input) {
+  await this.setTaskKanbanSortMode(input?.value || "default");
+},
+
 closeInlineFilters(element) {
   for (const filter of element.querySelectorAll(".task-kanban-inline-filter.is-open")) {
     filter.classList.remove("is-open");
@@ -137,8 +141,9 @@ async syncInlineKanbanDom(element, file) {
   const tasks = this.scanTasksInContent(file, content);
   this.ensureInlineFilterControl(element);
   this.renderInlineHeadingFilter(element, tasks);
+  this.renderInlineSortMenu(element);
   const selectedHeadings = this.getInlineSelectedHeadings(element, tasks);
-  const visibleTasks = tasks.filter((task) => selectedHeadings.has(task.heading || ""));
+  const visibleTasks = this.sortTasksForKanban(tasks.filter((task) => selectedHeadings.has(task.heading || "")));
 
   for (const status of STATUSES) {
     const column = element.querySelector(`.task-kanban-inline-column[data-status-key="${status.key}"]`);
@@ -172,6 +177,13 @@ ensureInlineFilterControl(element) {
     filter.innerHTML = '<button class="task-kanban-inline-action task-kanban-inline-filter-toggle" type="button" aria-expanded="false">Фильтр</button><span class="task-kanban-inline-filter-menu"></span>';
     actions.prepend(filter);
   }
+  if (!actions.querySelector(".task-kanban-inline-sort")) {
+    const sort = document.createElement("span");
+    sort.className = "task-kanban-inline-sort";
+    sort.innerHTML = '<button class="task-kanban-inline-action task-kanban-inline-sort-toggle" type="button" aria-expanded="false">Сортировка</button><span class="task-kanban-inline-sort-menu"></span>';
+    const filter = actions.querySelector(".task-kanban-inline-filter");
+    filter ? filter.insertAdjacentElement("afterend", sort) : actions.prepend(sort);
+  }
   if (!actions.querySelector(".task-kanban-inline-expand-toggle")) {
     const expandButton = document.createElement("button");
     expandButton.className = "task-kanban-inline-action task-kanban-inline-expand-toggle";
@@ -200,7 +212,6 @@ renderInlineHeadingFilter(element, tasks) {
       : new Set(headings);
   menu.dataset.initialized = "true";
   const allChecked = headings.length > 0 && headings.every((heading) => selected.has(heading));
-
   const options = [
     `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox" ${allChecked ? "checked" : ""}>Все</label>`,
     ...headings.map((heading) => {
@@ -209,6 +220,21 @@ renderInlineHeadingFilter(element, tasks) {
       return `<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${this.escapeAttribute(heading)}" ${checked}>${this.escapeTableText(label)}</label>`;
     })
   ];
+  menu.innerHTML = options.join("");
+},
+
+renderInlineSortMenu(element) {
+  const menu = element.querySelector(".task-kanban-inline-sort-menu");
+  if (!menu) return;
+  const sourcePath = element.dataset.taskKanbanSourcePath || "global";
+  const options = [
+    ["default", "По умолчанию"],
+    ["touched", "Последние сверху"],
+    ["priority", "По приоритету 🔥"]
+  ].map(([value, label]) => {
+    const checked = (this.taskKanbanSortMode || "default") === value ? "checked" : "";
+    return `<label class="task-kanban-inline-sort-option"><input type="radio" name="task-kanban-sort-${this.escapeAttribute(sourcePath)}" value="${this.escapeAttribute(value)}" ${checked}>${this.escapeTableText(label)}</label>`;
+  });
   menu.innerHTML = options.join("");
 },
 

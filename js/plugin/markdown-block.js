@@ -58,8 +58,9 @@ async deleteKanbanFromFile(file) {
 },
 
 buildKanbanBlock(file, tasks) {
+  const sortedTasks = this.sortTasksForKanban(tasks);
   const columns = STATUSES.map((status) => {
-    const items = tasks.filter((task) => task.status.key === status.key);
+    const items = sortedTasks.filter((task) => task.status.key === status.key);
     const marker = "<span class=\"task-kanban-inline-marker\"></span>";
     const content = items.length
       ? items.map((task) => this.formatKanbanCellItem(task)).join("")
