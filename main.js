@@ -1005,6 +1005,19 @@
             event.stopPropagation();
             event.stopImmediatePropagation();
             if (eventName !== "click") return;
+            const expandBtn = event.target.closest(".task-kanban-filter-expand");
+            if (expandBtn) {
+              event.preventDefault();
+              const node = expandBtn.closest(".task-kanban-filter-node");
+              const children = node?.querySelector(":scope > .task-kanban-filter-children");
+              if (!children) return;
+              const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
+              expandBtn.setAttribute("aria-expanded", String(!isExpanded));
+              expandBtn.textContent = isExpanded ? "›" : "⌄";
+              expandBtn.setAttribute("title", isExpanded ? "Развернуть" : "Свернуть");
+              children.hidden = isExpanded;
+              return;
+            }
             const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
             if (!toggle) return;
             event.preventDefault();
@@ -1012,6 +1025,7 @@
             const expanded = wasCollapsed || !filter.classList.contains("is-open");
             filter.classList.toggle("is-open", expanded);
             toggle.setAttribute("aria-expanded", String(expanded));
+            if (expanded) this.closeInlineSorts(element);
             return;
           }
           const sort = event.target.closest(".task-kanban-inline-sort");
@@ -1025,6 +1039,7 @@
             const expanded = !sort.classList.contains("is-open");
             sort.classList.toggle("is-open", expanded);
             toggle.setAttribute("aria-expanded", String(expanded));
+            if (expanded) this.closeInlineFilters(element);
             return;
           }
         }, true);
@@ -1037,10 +1052,7 @@
     
       this.registerDomEvent(document, "click", (event) => {
         if (event.target.closest(".task-kanban-inline-sort")) return;
-        for (const s of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
-          s.classList.remove("is-open");
-          s.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
-        }
+        this.closeInlineSorts(element);
       });
     
       element.addEventListener("click", async (event) => {
@@ -1216,7 +1228,8 @@
         if (!children) return;
         const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
         expandBtn.setAttribute("aria-expanded", String(!isExpanded));
-        expandBtn.textContent = isExpanded ? "▶" : "▼";
+        expandBtn.textContent = isExpanded ? "›" : "⌄";
+        expandBtn.setAttribute("title", isExpanded ? "Развернуть" : "Свернуть");
         children.hidden = isExpanded;
       });
     
@@ -1248,6 +1261,15 @@
             for (const cb of children.querySelectorAll("input[type='checkbox']")) {
               cb.checked = input.checked;
             }
+          }
+          let parent = node?.parentElement?.closest(".task-kanban-filter-node");
+          while (parent) {
+            const parentInput = parent.querySelector(":scope > .task-kanban-filter-row input[type='checkbox']");
+            const childInputs = Array.from(parent.querySelectorAll(":scope > .task-kanban-filter-children input[type='checkbox'][value]"));
+            if (parentInput && childInputs.length) {
+              parentInput.checked = childInputs.every(cb => cb.checked);
+            }
+            parent = parent.parentElement?.closest(".task-kanban-filter-node");
           }
           const allLeafs = Array.from(menu.querySelectorAll("input[type='checkbox'][value]"));
           const allChk = menu.querySelector("[data-filter-all] input[type='checkbox']");
@@ -1302,6 +1324,13 @@
       for (const filter of element.querySelectorAll(".task-kanban-inline-filter.is-open")) {
         filter.classList.remove("is-open");
         filter.querySelector(".task-kanban-inline-filter-toggle")?.setAttribute("aria-expanded", "false");
+      }
+    },
+    
+    closeInlineSorts(element) {
+      for (const sort of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
+        sort.classList.remove("is-open");
+        sort.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
       }
     },
     
@@ -1486,17 +1515,18 @@
       return tree;
     },
     
-    renderHeadingTreeNodes(nodes, selected, depth) {
+    renderHeadingTreeNodes(nodes, selected, expandedHeadings, depth) {
       return nodes.map(node => {
         const checked = selected.has(node.text) ? " checked" : "";
         const label = this.escapeTableText(node.text || "Без заголовка");
         const val = this.escapeAttribute(node.text);
         const hasChildren = node.children.length > 0;
+        const expanded = expandedHeadings.has(node.text);
         const expandBtn = hasChildren
-          ? `<button class="task-kanban-filter-expand" type="button" aria-expanded="true">▼</button>`
+          ? `<button class="task-kanban-filter-expand" type="button" aria-expanded="${expanded ? "true" : "false"}" data-heading="${val}" title="${expanded ? "Свернуть" : "Развернуть"}">${expanded ? "⌄" : "›"}</button>`
           : `<span class="task-kanban-filter-spacer"></span>`;
         const childrenHtml = hasChildren
-          ? `<div class="task-kanban-filter-children">${this.renderHeadingTreeNodes(node.children, selected, depth + 1)}</div>`
+          ? `<div class="task-kanban-filter-children"${expanded ? "" : " hidden"}>${this.renderHeadingTreeNodes(node.children, selected, expandedHeadings, depth + 1)}</div>`
           : "";
         return `<div class="task-kanban-filter-node"><div class="task-kanban-filter-row" style="padding-left:${depth * 16}px">${expandBtn}<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${val}"${checked}>${label}</label></div>${childrenHtml}</div>`;
       }).join("");
@@ -1508,6 +1538,10 @@
       const previousSelected = new Set(
         Array.from(menu.querySelectorAll("input[type='checkbox'][value]:checked")).map(i => i.value)
       );
+      const expandedHeadings = new Set(
+        Array.from(menu.querySelectorAll(".task-kanban-filter-expand[aria-expanded='true']"))
+          .map(button => button.getAttribute("data-heading") || "")
+      );
       const headingObjects = tasks.map(t => t.heading || "");
       const headingTexts = Array.from(new Set(headingObjects.map(h => typeof h === "string" ? h : h?.text || "")));
       const hasPreviousState = menu.dataset.initialized === "true";
@@ -1518,7 +1552,7 @@
       menu.dataset.initialized = "true";
       const allChecked = headingTexts.length > 0 && headingTexts.every(h => selected.has(h));
       const tree = this.buildHeadingTree(headingObjects);
-      menu.innerHTML = `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox"${allChecked ? " checked" : ""}>Все</label>${this.renderHeadingTreeNodes(tree, selected, 0)}`;
+      menu.innerHTML = `<label class="task-kanban-inline-filter-option task-kanban-inline-filter-all" data-filter-all="true"><input type="checkbox"${allChecked ? " checked" : ""}>Все</label>${this.renderHeadingTreeNodes(tree, selected, expandedHeadings, 0)}`;
     },
     
     renderInlineSortMenu(element) {

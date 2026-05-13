@@ -1,4 +1,4 @@
-/* Side panel board: styles/board.css */
+/* styles/board.css */
 .task-kanban-view .view-content {
   padding: 0;
 }
@@ -181,7 +181,7 @@
   min-width: 0;
 }
 
-/* Inline board: styles/inline-board.css */
+/* styles/inline-board.css */
 .task-kanban-card-heading {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -557,7 +557,7 @@
   min-width: 0;
 }
 
-/* Inline controls: styles/inline-controls.css */
+/* styles/inline-controls.css */
 
 .markdown-rendered .task-kanban-inline-title-summary,
 .cm-html-embed .task-kanban-inline-title-summary {
@@ -607,7 +607,7 @@
 .cm-html-embed .task-kanban-inline-filter-menu {
   max-height: 260px;
   overflow-y: auto;
-  min-width: 190px;
+  min-width: 230px;
 }
 
 .markdown-rendered .task-kanban-inline-filter.is-open .task-kanban-inline-filter-menu,
@@ -630,6 +630,27 @@
   font-size: 0.9em;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.markdown-rendered .task-kanban-inline-filter-option,
+.cm-html-embed .task-kanban-inline-filter-option {
+  min-width: 0;
+  flex: 1;
+}
+
+.markdown-rendered .task-kanban-inline-filter-option input,
+.markdown-rendered .task-kanban-inline-sort-option input,
+.cm-html-embed .task-kanban-inline-filter-option input,
+.cm-html-embed .task-kanban-inline-sort-option input {
+  flex-shrink: 0;
+}
+
+.markdown-rendered .task-kanban-inline-filter-all,
+.cm-html-embed .task-kanban-inline-filter-all {
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  padding-bottom: 7px;
 }
 
 .markdown-rendered .task-kanban-inline-filter-option:hover,
@@ -705,6 +726,8 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  border-radius: 4px;
 }
 
 .markdown-rendered .task-kanban-filter-expand,
@@ -715,9 +738,10 @@
   padding: 0;
   background: none;
   border: none;
+  border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.7em;
+  font-size: 1em;
   line-height: 1;
   display: flex;
   align-items: center;
@@ -727,6 +751,7 @@
 .markdown-rendered .task-kanban-filter-expand:hover,
 .cm-html-embed .task-kanban-filter-expand:hover {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 .markdown-rendered .task-kanban-filter-spacer,
@@ -742,7 +767,12 @@
   flex-direction: column;
 }
 
-/* Responsive: styles/responsive.css */
+.markdown-rendered .task-kanban-filter-children[hidden],
+.cm-html-embed .task-kanban-filter-children[hidden] {
+  display: none;
+}
+
+/* styles/responsive.css */
 @media (max-width: 980px) {
   .task-kanban-toolbar {
     align-items: stretch;

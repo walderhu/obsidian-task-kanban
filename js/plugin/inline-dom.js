@@ -40,6 +40,13 @@ closeInlineFilters(element) {
   }
 },
 
+closeInlineSorts(element) {
+  for (const sort of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
+    sort.classList.remove("is-open");
+    sort.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
+  }
+},
+
 setAllInlineSubtasksExpanded(element, expand) {
   for (const card of element.querySelectorAll(".task-kanban-inline-card, .task-kanban-inline-subtask")) {
     if (!card.querySelector(":scope > .task-kanban-inline-subtasks")) continue;
@@ -221,17 +228,18 @@ buildHeadingTree(headingObjects) {
   return tree;
 },
 
-renderHeadingTreeNodes(nodes, selected, depth) {
+renderHeadingTreeNodes(nodes, selected, expandedHeadings, depth) {
   return nodes.map(node => {
     const checked = selected.has(node.text) ? " checked" : "";
     const label = this.escapeTableText(node.text || "Без заголовка");
     const val = this.escapeAttribute(node.text);
     const hasChildren = node.children.length > 0;
+    const expanded = expandedHeadings.has(node.text);
     const expandBtn = hasChildren
-      ? `<button class="task-kanban-filter-expand" type="button" aria-expanded="true">▼</button>`
+      ? `<button class="task-kanban-filter-expand" type="button" aria-expanded="${expanded ? "true" : "false"}" data-heading="${val}" title="${expanded ? "Свернуть" : "Развернуть"}">${expanded ? "⌄" : "›"}</button>`
       : `<span class="task-kanban-filter-spacer"></span>`;
     const childrenHtml = hasChildren
-      ? `<div class="task-kanban-filter-children">${this.renderHeadingTreeNodes(node.children, selected, depth + 1)}</div>`
+      ? `<div class="task-kanban-filter-children"${expanded ? "" : " hidden"}>${this.renderHeadingTreeNodes(node.children, selected, expandedHeadings, depth + 1)}</div>`
       : "";
     return `<div class="task-kanban-filter-node"><div class="task-kanban-filter-row" style="padding-left:${depth * 16}px">${expandBtn}<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${val}"${checked}>${label}</label></div>${childrenHtml}</div>`;
   }).join("");
@@ -243,6 +251,10 @@ renderInlineHeadingFilter(element, tasks) {
   const previousSelected = new Set(
     Array.from(menu.querySelectorAll("input[type='checkbox'][value]:checked")).map(i => i.value)
   );
+  const expandedHeadings = new Set(
+    Array.from(menu.querySelectorAll(".task-kanban-filter-expand[aria-expanded='true']"))
+      .map(button => button.getAttribute("data-heading") || "")
+  );
   const headingObjects = tasks.map(t => t.heading || "");
   const headingTexts = Array.from(new Set(headingObjects.map(h => typeof h === "string" ? h : h?.text || "")));
   const hasPreviousState = menu.dataset.initialized === "true";
@@ -253,7 +265,7 @@ renderInlineHeadingFilter(element, tasks) {
   menu.dataset.initialized = "true";
   const allChecked = headingTexts.length > 0 && headingTexts.every(h => selected.has(h));
   const tree = this.buildHeadingTree(headingObjects);
-  menu.innerHTML = `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox"${allChecked ? " checked" : ""}>Все</label>${this.renderHeadingTreeNodes(tree, selected, 0)}`;
+  menu.innerHTML = `<label class="task-kanban-inline-filter-option task-kanban-inline-filter-all" data-filter-all="true"><input type="checkbox"${allChecked ? " checked" : ""}>Все</label>${this.renderHeadingTreeNodes(tree, selected, expandedHeadings, 0)}`;
 },
 
 renderInlineSortMenu(element) {

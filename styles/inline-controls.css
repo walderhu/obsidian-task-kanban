@@ -47,7 +47,7 @@
 .cm-html-embed .task-kanban-inline-filter-menu {
   max-height: 260px;
   overflow-y: auto;
-  min-width: 190px;
+  min-width: 230px;
 }
 
 .markdown-rendered .task-kanban-inline-filter.is-open .task-kanban-inline-filter-menu,
@@ -70,6 +70,27 @@
   font-size: 0.9em;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.markdown-rendered .task-kanban-inline-filter-option,
+.cm-html-embed .task-kanban-inline-filter-option {
+  min-width: 0;
+  flex: 1;
+}
+
+.markdown-rendered .task-kanban-inline-filter-option input,
+.markdown-rendered .task-kanban-inline-sort-option input,
+.cm-html-embed .task-kanban-inline-filter-option input,
+.cm-html-embed .task-kanban-inline-sort-option input {
+  flex-shrink: 0;
+}
+
+.markdown-rendered .task-kanban-inline-filter-all,
+.cm-html-embed .task-kanban-inline-filter-all {
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  padding-bottom: 7px;
 }
 
 .markdown-rendered .task-kanban-inline-filter-option:hover,
@@ -145,6 +166,8 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  border-radius: 4px;
 }
 
 .markdown-rendered .task-kanban-filter-expand,
@@ -155,9 +178,10 @@
   padding: 0;
   background: none;
   border: none;
+  border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.7em;
+  font-size: 1em;
   line-height: 1;
   display: flex;
   align-items: center;
@@ -167,6 +191,7 @@
 .markdown-rendered .task-kanban-filter-expand:hover,
 .cm-html-embed .task-kanban-filter-expand:hover {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 .markdown-rendered .task-kanban-filter-spacer,
@@ -180,4 +205,9 @@
 .cm-html-embed .task-kanban-filter-children {
   display: flex;
   flex-direction: column;
+}
+
+.markdown-rendered .task-kanban-filter-children[hidden],
+.cm-html-embed .task-kanban-filter-children[hidden] {
+  display: none;
 }

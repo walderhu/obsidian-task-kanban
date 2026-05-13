@@ -28,6 +28,19 @@ bindInlineKanbanDelegates(element, sourcePath) {
         event.stopPropagation();
         event.stopImmediatePropagation();
         if (eventName !== "click") return;
+        const expandBtn = event.target.closest(".task-kanban-filter-expand");
+        if (expandBtn) {
+          event.preventDefault();
+          const node = expandBtn.closest(".task-kanban-filter-node");
+          const children = node?.querySelector(":scope > .task-kanban-filter-children");
+          if (!children) return;
+          const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
+          expandBtn.setAttribute("aria-expanded", String(!isExpanded));
+          expandBtn.textContent = isExpanded ? "›" : "⌄";
+          expandBtn.setAttribute("title", isExpanded ? "Развернуть" : "Свернуть");
+          children.hidden = isExpanded;
+          return;
+        }
         const toggle = event.target.closest(".task-kanban-inline-filter-toggle");
         if (!toggle) return;
         event.preventDefault();
@@ -35,6 +48,7 @@ bindInlineKanbanDelegates(element, sourcePath) {
         const expanded = wasCollapsed || !filter.classList.contains("is-open");
         filter.classList.toggle("is-open", expanded);
         toggle.setAttribute("aria-expanded", String(expanded));
+        if (expanded) this.closeInlineSorts(element);
         return;
       }
       const sort = event.target.closest(".task-kanban-inline-sort");
@@ -48,6 +62,7 @@ bindInlineKanbanDelegates(element, sourcePath) {
         const expanded = !sort.classList.contains("is-open");
         sort.classList.toggle("is-open", expanded);
         toggle.setAttribute("aria-expanded", String(expanded));
+        if (expanded) this.closeInlineFilters(element);
         return;
       }
     }, true);
@@ -60,10 +75,7 @@ bindInlineKanbanDelegates(element, sourcePath) {
 
   this.registerDomEvent(document, "click", (event) => {
     if (event.target.closest(".task-kanban-inline-sort")) return;
-    for (const s of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
-      s.classList.remove("is-open");
-      s.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
-    }
+    this.closeInlineSorts(element);
   });
 
   element.addEventListener("click", async (event) => {
@@ -239,7 +251,8 @@ bindInlineKanbanDelegates(element, sourcePath) {
     if (!children) return;
     const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
     expandBtn.setAttribute("aria-expanded", String(!isExpanded));
-    expandBtn.textContent = isExpanded ? "▶" : "▼";
+    expandBtn.textContent = isExpanded ? "›" : "⌄";
+    expandBtn.setAttribute("title", isExpanded ? "Развернуть" : "Свернуть");
     children.hidden = isExpanded;
   });
 
@@ -271,6 +284,15 @@ bindInlineKanbanDelegates(element, sourcePath) {
         for (const cb of children.querySelectorAll("input[type='checkbox']")) {
           cb.checked = input.checked;
         }
+      }
+      let parent = node?.parentElement?.closest(".task-kanban-filter-node");
+      while (parent) {
+        const parentInput = parent.querySelector(":scope > .task-kanban-filter-row input[type='checkbox']");
+        const childInputs = Array.from(parent.querySelectorAll(":scope > .task-kanban-filter-children input[type='checkbox'][value]"));
+        if (parentInput && childInputs.length) {
+          parentInput.checked = childInputs.every(cb => cb.checked);
+        }
+        parent = parent.parentElement?.closest(".task-kanban-filter-node");
       }
       const allLeafs = Array.from(menu.querySelectorAll("input[type='checkbox'][value]"));
       const allChk = menu.querySelector("[data-filter-all] input[type='checkbox']");
