@@ -134,29 +134,50 @@
   border-color: var(--text-error);
 }
 
-.markdown-rendered .task-kanban-heading-option,
-.cm-html-embed .task-kanban-heading-option {
+.markdown-rendered .task-kanban-filter-node,
+.cm-html-embed .task-kanban-filter-node {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 2px;
-  color: var(--text-normal);
-  font-size: 0.9em;
+  flex-direction: column;
 }
 
-.markdown-rendered .task-kanban-heading-expand,
-.cm-html-embed .task-kanban-heading-expand {
-  min-width: 24px;
-  padding: 0 2px;
+.markdown-rendered .task-kanban-filter-row,
+.cm-html-embed .task-kanban-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.markdown-rendered .task-kanban-filter-expand,
+.cm-html-embed .task-kanban-filter-expand {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.85em;
+  font-size: 0.7em;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.markdown-rendered .task-kanban-heading-expand:hover,
-.cm-html-embed .task-kanban-heading-expand:hover {
+.markdown-rendered .task-kanban-filter-expand:hover,
+.cm-html-embed .task-kanban-filter-expand:hover {
   color: var(--text-normal);
+}
+
+.markdown-rendered .task-kanban-filter-spacer,
+.cm-html-embed .task-kanban-filter-spacer {
+  flex-shrink: 0;
+  width: 20px;
+  display: inline-block;
+}
+
+.markdown-rendered .task-kanban-filter-children,
+.cm-html-embed .task-kanban-filter-children {
+  display: flex;
+  flex-direction: column;
 }

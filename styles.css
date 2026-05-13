@@ -694,6 +694,54 @@
   border-color: var(--text-error);
 }
 
+.markdown-rendered .task-kanban-filter-node,
+.cm-html-embed .task-kanban-filter-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.markdown-rendered .task-kanban-filter-row,
+.cm-html-embed .task-kanban-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.markdown-rendered .task-kanban-filter-expand,
+.cm-html-embed .task-kanban-filter-expand {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7em;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.markdown-rendered .task-kanban-filter-expand:hover,
+.cm-html-embed .task-kanban-filter-expand:hover {
+  color: var(--text-normal);
+}
+
+.markdown-rendered .task-kanban-filter-spacer,
+.cm-html-embed .task-kanban-filter-spacer {
+  flex-shrink: 0;
+  width: 20px;
+  display: inline-block;
+}
+
+.markdown-rendered .task-kanban-filter-children,
+.cm-html-embed .task-kanban-filter-children {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Responsive: styles/responsive.css */
 @media (max-width: 980px) {
   .task-kanban-toolbar {

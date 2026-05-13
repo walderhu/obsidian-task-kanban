@@ -18,8 +18,8 @@ const {
 
 module.exports = {
 async saveInlineHeadingFilterSelection(sourcePath, menu) {
-  const options = Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input[type='checkbox']"));
-  const selected = options.filter((option) => option.checked).map((option) => option.value);
+  const options = Array.from(menu.querySelectorAll("input[type='checkbox'][value]"));
+  const selected = options.filter(o => o.checked).map(o => o.value);
   this.inlineKanbanHeadingFilters ||= {};
   if (!options.length || selected.length === options.length) {
     delete this.inlineKanbanHeadingFilters[sourcePath];
@@ -199,86 +199,61 @@ ensureInlineFilterControl(element) {
 },
 
 buildHeadingTree(headingObjects) {
-  const headings = headingObjects
+  const seen = new Set();
+  const items = headingObjects
     .filter(Boolean)
-    .map(h => typeof h === "string" ? { level: 1, text: h } : h);
+    .map(h => typeof h === "string" ? { level: 1, text: h } : h)
+    .filter(h => {
+      if (seen.has(h.text)) return false;
+      seen.add(h.text);
+      return true;
+    });
 
-  const uniqueMap = new Map();
-  for (const h of headings) {
-    if (!uniqueMap.has(h.text)) {
-      uniqueMap.set(h.text, h);
-    }
-  }
-
-  const items = Array.from(uniqueMap.values());
   const tree = [];
   const stack = [];
-
   for (const item of items) {
-    while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
-      stack.pop();
-    }
-
-    const parent = stack[stack.length - 1];
+    while (stack.length && stack[stack.length - 1].level >= item.level) stack.pop();
     const node = { ...item, children: [] };
-
-    if (parent) {
-      parent.children.push(node);
-    } else {
-      tree.push(node);
-    }
+    if (stack.length) stack[stack.length - 1].children.push(node);
+    else tree.push(node);
     stack.push(node);
   }
-
   return tree;
 },
 
-renderHeadingTreeOptions(nodes, selected, depth = 0) {
-  let html = "";
-  for (const node of nodes) {
-    const indent = depth * 20;
-    const hasChildren = node.children && node.children.length > 0;
-    const isExpanded = node._expanded !== false;
-    const checked = selected.has(node.text) ? "checked" : "";
-    const expandBtn = hasChildren ? `<button class="task-kanban-heading-expand" style="margin-left: ${indent}px" data-heading="${this.escapeAttribute(node.text)}" type="button" aria-expanded="${isExpanded}"> ${isExpanded ? "▼" : "▶"} </button>` : `<span style="margin-left: ${indent + 20}px"></span>`;
-
-    html += `<div class="task-kanban-heading-option" data-heading-text="${this.escapeAttribute(node.text)}" data-heading-level="${node.level}">
-      ${expandBtn}
-      <label class="task-kanban-inline-filter-option" style="margin-left: 0">
-        <input type="checkbox" value="${this.escapeAttribute(node.text)}" ${checked} data-parent="${this.escapeAttribute(node.text)}">
-        ${this.escapeTableText(node.text || "Без заголовка")}
-      </label>
-    </div>`;
-
-    if (hasChildren && isExpanded) {
-      html += this.renderHeadingTreeOptions(node.children, selected, depth + 1);
-    }
-  }
-  return html;
+renderHeadingTreeNodes(nodes, selected, depth) {
+  return nodes.map(node => {
+    const checked = selected.has(node.text) ? " checked" : "";
+    const label = this.escapeTableText(node.text || "Без заголовка");
+    const val = this.escapeAttribute(node.text);
+    const hasChildren = node.children.length > 0;
+    const expandBtn = hasChildren
+      ? `<button class="task-kanban-filter-expand" type="button" aria-expanded="true">▼</button>`
+      : `<span class="task-kanban-filter-spacer"></span>`;
+    const childrenHtml = hasChildren
+      ? `<div class="task-kanban-filter-children">${this.renderHeadingTreeNodes(node.children, selected, depth + 1)}</div>`
+      : "";
+    return `<div class="task-kanban-filter-node"><div class="task-kanban-filter-row" style="padding-left:${depth * 16}px">${expandBtn}<label class="task-kanban-inline-filter-option"><input type="checkbox" value="${val}"${checked}>${label}</label></div>${childrenHtml}</div>`;
+  }).join("");
 },
 
 renderInlineHeadingFilter(element, tasks) {
   const menu = element.querySelector(".task-kanban-inline-filter-menu");
   if (!menu) return;
   const previousSelected = new Set(
-    Array.from(menu.querySelectorAll("input[type='checkbox']:not([data-filter-all]):checked"))
-      .map((input) => input.value)
+    Array.from(menu.querySelectorAll("input[type='checkbox'][value]:checked")).map(i => i.value)
   );
-  const headingObjects = Array.from(tasks.map((task) => task.heading || ""));
+  const headingObjects = tasks.map(t => t.heading || "");
+  const headingTexts = Array.from(new Set(headingObjects.map(h => typeof h === "string" ? h : h?.text || "")));
   const hasPreviousState = menu.dataset.initialized === "true";
   const savedSelected = this.inlineKanbanHeadingFilters?.[element.dataset.taskKanbanSourcePath];
-  const headingTexts = Array.from(new Set(headingObjects.map(h => typeof h === "string" ? h : h?.text || "")));
   const selected = hasPreviousState
     ? previousSelected
-    : Array.isArray(savedSelected)
-      ? new Set(savedSelected)
-      : new Set(headingTexts);
+    : Array.isArray(savedSelected) ? new Set(savedSelected) : new Set(headingTexts);
   menu.dataset.initialized = "true";
-  const allChecked = headingTexts.length > 0 && headingTexts.every((heading) => selected.has(heading));
+  const allChecked = headingTexts.length > 0 && headingTexts.every(h => selected.has(h));
   const tree = this.buildHeadingTree(headingObjects);
-  const treeHtml = this.renderHeadingTreeOptions(tree, selected);
-  const html = `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox" ${allChecked ? "checked" : ""}>Все</label>${treeHtml}`;
-  menu.innerHTML = html;
+  menu.innerHTML = `<label class="task-kanban-inline-filter-option" data-filter-all="true"><input type="checkbox"${allChecked ? " checked" : ""}>Все</label>${this.renderHeadingTreeNodes(tree, selected, 0)}`;
 },
 
 renderInlineSortMenu(element) {
@@ -297,15 +272,15 @@ renderInlineSortMenu(element) {
 },
 
 getInlineSelectedHeadings(element, tasks) {
-  const headingObjects = Array.from(new Set(tasks.map((task) => task.heading || "")));
-  const headingTexts = headingObjects.map(h => typeof h === "string" ? h : h?.text || "");
+  const headingTexts = Array.from(new Set(tasks.map(t => {
+    const h = t.heading;
+    return typeof h === "string" ? h : h?.text || "";
+  })));
   const menu = element.querySelector(".task-kanban-inline-filter-menu");
   if (!menu) return new Set(headingTexts);
-  const selected = new Set(
-    Array.from(menu.querySelectorAll(".task-kanban-inline-filter-option:not([data-filter-all]) input:checked"))
-      .map((input) => input.value)
+  return new Set(
+    Array.from(menu.querySelectorAll("input[type='checkbox'][value]:checked")).map(i => i.value)
   );
-  return selected;
 },
 
 restoreInlineExpandedState(element, expandedBlockIds) {

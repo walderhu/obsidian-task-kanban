@@ -230,43 +230,17 @@ bindInlineKanbanDelegates(element, sourcePath) {
   });
 
   element.addEventListener("click", (event) => {
-    const expandBtn = event.target.closest(".task-kanban-heading-expand");
-    if (expandBtn && element.contains(expandBtn)) {
-      event.preventDefault();
-      event.stopPropagation();
-      const headingText = expandBtn.getAttribute("data-heading");
-      const option = expandBtn.closest(".task-kanban-heading-option");
-      const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
-      const children = option?.nextElementSibling;
-
-      if (isExpanded) {
-        expandBtn.textContent = " ▶ ";
-        expandBtn.setAttribute("aria-expanded", "false");
-        let current = option?.nextElementSibling;
-        while (current && current.classList.contains("task-kanban-heading-option")) {
-          const depth = parseInt(current.getAttribute("data-heading-level") || "1");
-          const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
-          if (depth <= parentDepth) break;
-          current.style.display = "none";
-          current = current.nextElementSibling;
-        }
-      } else {
-        expandBtn.textContent = " ▼ ";
-        expandBtn.setAttribute("aria-expanded", "true");
-        let current = option?.nextElementSibling;
-        while (current && current.classList.contains("task-kanban-heading-option")) {
-          const depth = parseInt(current.getAttribute("data-heading-level") || "1");
-          const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
-          if (depth <= parentDepth) break;
-          const childExpandBtn = current.querySelector(".task-kanban-heading-expand");
-          if (!childExpandBtn || childExpandBtn.getAttribute("aria-expanded") === "true") {
-            current.style.display = "";
-          }
-          current = current.nextElementSibling;
-        }
-      }
-      return;
-    }
+    const expandBtn = event.target.closest(".task-kanban-filter-expand");
+    if (!expandBtn || !element.contains(expandBtn)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const node = expandBtn.closest(".task-kanban-filter-node");
+    const children = node?.querySelector(":scope > .task-kanban-filter-children");
+    if (!children) return;
+    const isExpanded = expandBtn.getAttribute("aria-expanded") === "true";
+    expandBtn.setAttribute("aria-expanded", String(!isExpanded));
+    expandBtn.textContent = isExpanded ? "▶" : "▼";
+    children.hidden = isExpanded;
   });
 
   element.addEventListener("change", async (event) => {
@@ -287,27 +261,20 @@ bindInlineKanbanDelegates(element, sourcePath) {
 
     const menu = input.closest(".task-kanban-inline-filter-menu");
     if (input.closest("[data-filter-all]")) {
-      for (const option of menu.querySelectorAll("input[type='checkbox']:not([data-filter-all])")) {
-        option.checked = input.checked;
+      for (const cb of menu.querySelectorAll("input[type='checkbox'][value]")) {
+        cb.checked = input.checked;
       }
     } else {
-      const parentHeading = input.getAttribute("data-parent");
-      if (input.checked && parentHeading) {
-        let option = input.closest(".task-kanban-heading-option");
-        let current = option?.nextElementSibling;
-        while (current && current.classList.contains("task-kanban-heading-option")) {
-          const depth = parseInt(current.getAttribute("data-heading-level") || "1");
-          const parentDepth = parseInt(option.getAttribute("data-heading-level") || "1");
-          if (depth <= parentDepth) break;
-          const childInput = current.querySelector("input[type='checkbox']");
-          if (childInput) childInput.checked = true;
-          current = current.nextElementSibling;
+      const node = input.closest(".task-kanban-filter-node");
+      const children = node?.querySelector(":scope > .task-kanban-filter-children");
+      if (children) {
+        for (const cb of children.querySelectorAll("input[type='checkbox']")) {
+          cb.checked = input.checked;
         }
       }
-
-      const allInputs = Array.from(menu.querySelectorAll("input[type='checkbox']:not([data-filter-all])"));
-      const all = menu.querySelector("input[data-filter-all]");
-      if (all) all.checked = allInputs.length > 0 && allInputs.every((opt) => opt.checked);
+      const allLeafs = Array.from(menu.querySelectorAll("input[type='checkbox'][value]"));
+      const allChk = menu.querySelector("[data-filter-all] input[type='checkbox']");
+      if (allChk) allChk.checked = allLeafs.length > 0 && allLeafs.every(cb => cb.checked);
     }
 
     await this.saveInlineHeadingFilterSelection(sourcePath, menu);
