@@ -1,0 +1,15 @@
+@media (max-width: 980px) {
+  .task-kanban-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .task-kanban-controls {
+    flex-wrap: wrap;
+  }
+
+  .task-kanban-search {
+    flex: 1;
+    min-width: 180px;
+  }
+}
