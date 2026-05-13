@@ -314,6 +314,12 @@
   cursor: grab;
 }
 
+[data-task-kanban-readonly] table:has(.task-kanban-inline-marker) .task-kanban-inline-card,
+[data-task-kanban-readonly] .task-kanban-inline-subtask,
+[data-task-kanban-readonly] .task-kanban-inline-subtask-status {
+  cursor: default;
+}
+
 .markdown-rendered table:has(.task-kanban-inline-marker) .task-kanban-inline-card.is-dragging,
 .cm-html-embed table:has(.task-kanban-inline-marker) .task-kanban-inline-card.is-dragging {
   opacity: 0.55;

@@ -124,6 +124,7 @@ expandInlineKanbanCallout(element) {
 
 async syncInlineKanbanDom(element, file) {
   if (!element.querySelector(".task-kanban-inline-marker")) return;
+  this.syncInlineReadonlyState(element, file.path);
   const expandedBlockIds = new Set(
     Array.from(element.querySelectorAll(".task-kanban-inline-card.is-expanded, .task-kanban-inline-subtask.is-expanded"))
       .map((card) => this.getInlineBlockId(card))
@@ -148,6 +149,7 @@ async syncInlineKanbanDom(element, file) {
       : "<span class=\"task-kanban-inline-empty\">Пусто</span>";
   }
   this.restoreInlineExpandedState(element, expandedBlockIds);
+  this.syncInlineReadonlyState(element, file.path);
   this.updateInlineTextOverflowControls(element);
 
   const table = element.querySelector("table:has(.task-kanban-inline-marker)");

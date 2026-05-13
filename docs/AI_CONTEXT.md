@@ -33,7 +33,7 @@ CSS map:
 Behavior notes:
 - Generated inline blocks are bounded by `KANBAN_START` and `KANBAN_END`; scanners skip this generated region.
 - Every real Markdown task receives a stable `^tk-*` block id when needed, so inline cards can update the original line.
-- Inline status drag/drop and subtask toggles only mutate files when the source markdown view is not in preview mode.
+- Inline status drag/drop, subtask toggles, refresh, and delete only mutate files when the source markdown view is in `source` mode. Reading/preview mode is read-only.
 - The side-panel board reads all markdown files unless `activeFileOnly` is enabled.
 - Heading filters are persisted via `saveData()` under `headingFilters`.
 

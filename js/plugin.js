@@ -38,6 +38,7 @@ async onload() {
     if (sourceFile instanceof TFile) {
       this.trackInlineKanbanElement(sourceFile, element);
       await this.syncInlineKanbanDom(element, sourceFile);
+      this.syncInlineReadonlyState(element, context.sourcePath);
       this.bindInlineKanbanDelegates(element, context.sourcePath);
     }
 
@@ -47,6 +48,7 @@ async onload() {
         column.setAttribute("data-status-key", columnStatus.key);
       }
       column.addEventListener("dragover", (event) => {
+        if (!this.canEditInlineKanban(context.sourcePath)) return;
         if (!Array.from(event.dataTransfer?.types || []).includes(TASK_KANBAN_DRAG_MIME)) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
@@ -56,6 +58,7 @@ async onload() {
         if (!column.contains(event.relatedTarget)) column.classList.remove("is-drag-over");
       });
       column.addEventListener("drop", async (event) => {
+        if (!this.canEditInlineKanban(context.sourcePath)) return;
         const blockId = event.dataTransfer?.getData(TASK_KANBAN_DRAG_MIME);
         const status = this.getInlineColumnStatus(column);
         if (!blockId || !status) return;
@@ -64,7 +67,6 @@ async onload() {
         column.classList.remove("is-drag-over");
         const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
         if (!(file instanceof TFile)) return;
-        if (!this.isSourcePathInEditMode(context.sourcePath)) return;
         const openView = this.findOpenMarkdownView(file);
         const savedScroll = openView?.editor?.getScrollInfo?.();
         await this.setInlineTaskStatus(file, blockId, status, true, true);
@@ -77,8 +79,16 @@ async onload() {
       });
     }
     for (const card of element.querySelectorAll(".task-kanban-inline-card")) {
-      if (this.getInlineBlockId(card)) card.setAttribute("draggable", "true");
+      if (this.canEditInlineKanban(context.sourcePath) && this.getInlineBlockId(card)) {
+        card.setAttribute("draggable", "true");
+      } else {
+        card.removeAttribute("draggable");
+      }
       card.addEventListener("dragstart", (event) => {
+        if (!this.canEditInlineKanban(context.sourcePath)) {
+          event.preventDefault();
+          return;
+        }
         if (event.target.closest(".task-kanban-inline-subtask")) {
           event.preventDefault();
           return;
@@ -100,6 +110,7 @@ async onload() {
       button.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (!this.canEditInlineKanban(context.sourcePath)) return;
         const subtask = button.closest(".task-kanban-inline-subtask");
         await this.toggleInlineSubtaskStatus(subtask, context.sourcePath);
       });
@@ -110,6 +121,7 @@ async onload() {
         event.preventDefault();
         event.stopPropagation();
         if (card.classList.contains("task-kanban-inline-subtask")) {
+          if (!this.canEditInlineKanban(context.sourcePath)) return;
           await this.toggleInlineSubtaskStatus(card, context.sourcePath);
           return;
         }
@@ -144,6 +156,7 @@ async onload() {
         const action = button.getAttribute("data-action");
         const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
         if (!(file instanceof TFile)) return;
+        if (!this.canEditInlineKanban(context.sourcePath)) return;
         if (action === "refresh") {
           await this.insertKanbanIntoFile(file, false);
           await this.refreshInlineKanbanView(file, element);

@@ -70,7 +70,28 @@ isSourcePathInEditMode(sourcePath) {
   const leaf = this.app.workspace.getLeavesOfType("markdown").find(
     (l) => l.view instanceof MarkdownView && l.view.file?.path === sourcePath
   );
-  return leaf?.view?.getMode?.() !== "preview";
+  return leaf?.view?.getMode?.() === "source";
+},
+
+canEditInlineKanban(sourcePath) {
+  return this.isSourcePathInEditMode(sourcePath);
+},
+
+syncInlineReadonlyState(element, sourcePath) {
+  const canEdit = this.canEditInlineKanban(sourcePath);
+  element.classList.toggle("task-kanban-inline-readonly", !canEdit);
+  element.toggleAttribute("data-task-kanban-readonly", !canEdit);
+  for (const card of element.querySelectorAll(".task-kanban-inline-card")) {
+    if (canEdit && this.getInlineBlockId(card)) {
+      card.setAttribute("draggable", "true");
+    } else {
+      card.removeAttribute("draggable");
+      card.classList.remove("is-dragging");
+    }
+  }
+  for (const column of element.querySelectorAll(".task-kanban-inline-column.is-drag-over")) {
+    column.classList.remove("is-drag-over");
+  }
 },
 
 updateInlineStatusButton(button, status) {

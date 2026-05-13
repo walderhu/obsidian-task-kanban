@@ -18,6 +18,7 @@ const {
 
 module.exports = {
 async toggleInlineSubtaskStatus(subtask, sourcePath) {
+  if (!this.canEditInlineKanban(sourcePath)) return;
   const button = subtask?.querySelector(":scope > .task-kanban-inline-subtask-status");
   const file = this.app.vault.getAbstractFileByPath(sourcePath);
   const status = STATUS_BY_KEY.get(button?.getAttribute("data-status-key")) || STATUS_BY_ICON.get(button?.textContent.trim());
@@ -38,6 +39,7 @@ async toggleInlineSubtaskStatus(subtask, sourcePath) {
 },
 
 async switchToEditAndToggleSubtask(subtask, sourcePath) {
+  if (!this.canEditInlineKanban(sourcePath)) return;
   const button = subtask?.querySelector(":scope > .task-kanban-inline-subtask-status");
   const blockId = this.getInlineBlockId(button) || this.getInlineBlockId(subtask);
   const line = this.getInlineLine(button) ?? this.getInlineLine(subtask);
@@ -71,6 +73,7 @@ async openInlineTask(sourcePath, line) {
 },
 
 async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban = false, fallbackLine = null) {
+  if (!this.canEditInlineKanban(file.path)) return;
   const openView = this.findOpenMarkdownView(file);
   if (openView?.editor?.getValue && openView.editor.replaceRange) {
     const preEditState = rebuildKanban ? this.captureActiveEditorState(file) : null;
