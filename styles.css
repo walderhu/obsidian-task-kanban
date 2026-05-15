@@ -250,6 +250,15 @@
   border-spacing: 0;
 }
 
+.markdown-rendered table:has(.task-kanban-inline-marker) > thead,
+.markdown-rendered table:has(.task-kanban-inline-marker) > tbody,
+.cm-html-embed table:has(.task-kanban-inline-marker) > thead,
+.cm-html-embed table:has(.task-kanban-inline-marker) > tbody {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
 .markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) .callout-content,
 .markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) table,
 .markdown-rendered .callout[data-callout-fold="-"]:has(.task-kanban-inline-marker) .callout-content,
@@ -286,9 +295,7 @@
 .markdown-rendered table:has(.task-kanban-inline-marker) td,
 .cm-html-embed table:has(.task-kanban-inline-marker) th,
 .cm-html-embed table:has(.task-kanban-inline-marker) td {
-  width: 280px;
   min-width: 280px;
-  max-width: 280px;
   vertical-align: top;
 }
 
