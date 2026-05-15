@@ -408,8 +408,9 @@
         const file = info?.file;
         if (!(file instanceof TFile) || file.extension !== "md") return;
         window.clearTimeout(this._parentSyncTimer);
-        this._parentSyncTimer = window.setTimeout(() => {
+        this._parentSyncTimer = window.setTimeout(async () => {
           this.syncParentsInActiveEditor(file);
+          await this.refreshInlineKanbanBlock(file);
           this.scheduleInlineKanbanRefresh(file, 0);
         }, 300);
       }));
