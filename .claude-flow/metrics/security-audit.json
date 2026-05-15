@@ -1,15 +1,15 @@
 {
-  "timestamp": "2026-05-13T14:08:41.201Z",
+  "timestamp": "2026-05-13T21:50:04.350Z",
   "mode": "headless",
   "workerType": "audit",
   "model": "haiku",
-  "durationMs": 42083,
-  "executionId": "audit_1778681279118_47upuv",
-  "success": true,
+  "durationMs": 9057,
+  "executionId": "audit_1778708995293_u3ma4p",
+  "success": false,
   "findings": {
     "parseError": true,
-    "rawOutput": "**Key Findings:**\n\n✅ **No Critical Issues:**\n- Proper HTML entity escaping in `formatKanbanCellItem()`, `formatInlineSubtasks()` \n- All user inputs (`task.text`, `task.heading`) are escaped before HTML insertion\n- No hardcoded secrets, SQL injection, or command injection vectors\n- Regex patterns safe from ReDoS attacks\n\n⚠️ **Low-Risk Issues:**\n1. Plugin lifecycle: No `onunload()` shown to clean up `inlineKanbanRefreshTimers`, element references, and event listeners\n2. Authorization is file-mode-dependent (source vs. preview) — acceptable for Obsidian's local vault context but not a strong security boundary\n\n**Trust Model:** This plugin operates entirely within Obsidian's vault and relies on Obsidian's file security. The code doesn't introduce additional vulnerabilities to that trust model.\n"
+    "rawOutput": "You've hit your limit · resets 2:10am (Europe/Moscow)\n"
   },
-  "rawOutputPreview": "**Key Findings:**\n\n✅ **No Critical Issues:**\n- Proper HTML entity escaping in `formatKanbanCellItem()`, `formatInlineSubtasks()` \n- All user inputs (`task.text`, `task.heading`) are escaped before HTML insertion\n- No hardcoded secrets, SQL injection, or command injection vectors\n- Regex patterns safe from ReDoS attacks\n\n⚠️ **Low-Risk Issues:**\n1. Plugin lifecycle: No `onunload()` shown to clean up `inlineKanbanRefreshTimers`, element references, and event listeners\n2. Authorization is file-mode-dependent (source vs. preview) — acceptable for Obsidian's local vault context but not a strong security boundary\n\n**Trust Model:** This plugin operates entirely within Obsidian's vault and relies on Obsidian's file security. The code doesn't introduce additional vulnerabilities to that trust model.\n",
-  "rawOutputLength": 801
+  "rawOutputPreview": "You've hit your limit · resets 2:10am (Europe/Moscow)\n",
+  "rawOutputLength": 54
 }

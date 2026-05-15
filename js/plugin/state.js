@@ -142,6 +142,12 @@ syncInlineReadonlyState(element, sourcePath) {
 },
 
 updateInlineStatusButton(button, status) {
+  if (!status) {
+    button.removeAttribute("data-status-key");
+    button.setAttribute("title", "Обычный пункт");
+    button.textContent = "•";
+    return;
+  }
   button.setAttribute("data-status-key", status.key);
   button.setAttribute("title", status.title);
   button.textContent = status.icon;

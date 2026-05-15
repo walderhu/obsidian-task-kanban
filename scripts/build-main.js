@@ -16,6 +16,7 @@ const modules = [
   "js/plugin/markdown-block",
   "js/plugin/format",
   "js/plugin/block-ids",
+  "js/plugin/editor-checkbox",
   "js/plugin/task-actions"
 ];
 

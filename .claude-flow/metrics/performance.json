@@ -1,90 +1,15 @@
 {
-  "timestamp": "2026-05-13T14:12:36.714Z",
+  "timestamp": "2026-05-13T21:44:12.073Z",
   "mode": "headless",
   "workerType": "optimize",
   "model": "sonnet",
-  "durationMs": 85949,
-  "executionId": "optimize_1778681470765_4lp4yu",
-  "success": true,
+  "durationMs": 7481,
+  "executionId": "optimize_1778708644592_2i35v7",
+  "success": false,
   "findings": {
-    "sections": [
-      {
-        "title": "Performance Issues Found",
-        "content": "\n",
-        "level": 2
-      },
-      {
-        "title": "1. Serial N+1 File Reads — `tasks.js:20-33`",
-        "content": "\n`collectTasks` reads files **sequentially** in a loop. With 100+ markdown files, this is 100 serial `vault.read()` calls.\n\n```js\n// BAD: serial\nfor (const file of files) {\n  const text = await this.readMarkdownFileContent(file);\n  results.push(...this.scanTasksInContent(file, text));\n}\n\n// FIX: parallel\nconst entries = await Promise.all(\n  files.map(async file => {\n    const text = await this.readMarkdownFileContent(file);\n    return this.scanTasksInContent(file, text);\n  })\n);\nreturn this.sortTasksForKanban(entries.flat());\n```\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "2. `STATUSES.indexOf()` in Sort Comparator — `state.js:50-69`",
-        "content": "\n`STATUSES.indexOf(a.status)` is O(n) and called **O(k log k)** times per sort (k = task count). Also `getTaskTouchedKey()` recomputed per comparison pair.\n\n```js\n// BAD: O(STATUSES.length) per comparison\nconst statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);\n\n// FIX: precompute before sort\nconst statusIndex = new Map(STATUSES.map((s, i) => [s, i]));\nconst touchedMap = new Map(items.map(t => [t, this.getTaskTouchedKey(t)]));\nreturn items.sort((a, b) => {\n  // ...use statusIndex.get(a.status) and touchedMap.get(a)\n});\n```\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "3. Redundant `visibleTasks.filter()` in `syncInlineKanbanDom` — `inline-dom.js:151-171`",
-        "content": "\nFilter by `status.key` runs **twice** — once to set innerHTML, once to count for headers.\n\n```js\n// BAD: two passes\nitems.map(task => this.formatKanbanCellItem(task)).join(\"\")\n// ...later...\nconst count = visibleTasks.filter(task => task.status.key === status.key).length;\n\n// FIX: group once\nconst byStatus = new Map(STATUSES.map(s => [s.key, []]));\nfor (const task of visibleTasks) byStatus.get(task.status.key)?.push(task);\n// then use byStatus.get(status.key) in both places\n```\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "4. `getComputedStyle` in Loop — `inline-dom.js:79`",
-        "content": "\n`getComputedStyle(text).lineHeight` forces style recalc for **every card** on every refresh. All cards share the same line-height.\n\n```js\n// BAD: per-card style recalc\nconst lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;\n\n// FIX: compute once outside loop\nconst cards = element.querySelectorAll(\".task-kanban-inline-card\");\nconst firstText = cards[0]?.querySelector(\".task-kanban-inline-text\");\nconst lineHeight = firstText\n  ? (Number.parseFloat(getComputedStyle(firstText).lineHeight) || 18)\n  : 18;\nfor (const card of cards) { /* use lineHeight */ }\n```\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "5. JSON Serialize/Deserialize for Deduplication — `inline-dom.js:228`",
-        "content": "\n```js\n// BAD: expensive & fragile (key order)\nconst headingObjects = Array.from(\n  new Set(tasks.map(t => JSON.stringify(t.heading || \"\")).map(s => JSON.parse(s)))\n);\n\n// FIX: deduplicate by text directly\nconst seen = new Set();\nconst headingObjects = [];\nfor (const task of tasks) {\n  const text = task.heading?.text || (typeof task.heading === \"string\" ? task.heading : \"\");\n  if (!seen.has(text)) { seen.add(text); headingObjects.push(task.heading || \"\"); }\n}\n```\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "6. `syncInlineReadonlyState` Called Twice — `inline-dom.js:131,160`",
-        "content": "\nBoth lines 131 and 160 call it on the same `element` with the same `file.path`. Second call is pure waste — DOM already correct. Remove line 131 (or 160, keep whichever is last).\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "7. `buildHeadingTree` Sort is Discarded — `inline-dom.js:201-219`",
-        "content": "\nSorts `headings` by `localeCompare`, then builds a `Map` (which is insertion-ordered but into a deduplicated map, so sort result is irrelevant since it iterates the Map). The `.sort()` call is wasted CPU.\n\n```js\n// current: sorts, then deduplicates losing the sort\nconst headings = headingObjects.filter(Boolean).map(...).sort(...);\nconst uniqueHeadings = new Map(); // insertion order = sort order? Only if no dupes\n```\n\nIf sort is intentional, sort **after** deduplication:\n```js\nconst unique = [...new Map(headings.map(h => [h.text, h])).values()];\nunique.sort((a, b) => a.text.localeCompare(b.text));\n```\n\n---\n\n",
-        "level": 3
-      },
-      {
-        "title": "8. Potential Memory Leak — `inlineKanbanRefreshTimers` / `inlineKanbanExpandedBlockIds`",
-        "content": "These Maps grow as files are opened. If plugin doesn't clear them on file close/unload, they hold references to deleted `TFile`-keyed data. Verify `onunload` clears both Maps (not visible in these files — check `js/plugin.js`).\n\n---\n\n**Highest impact to fix first:** #1 (serial reads) > #3 (redundant filter) > #2 (indexOf in sort) > #4 (getComputedStyle loop).",
-        "level": 3
-      }
-    ],
-    "codeBlocks": [
-      {
-        "language": "js",
-        "code": "// BAD: serial\nfor (const file of files) {\n  const text = await this.readMarkdownFileContent(file);\n  results.push(...this.scanTasksInContent(file, text));\n}\n\n// FIX: parallel\nconst entries = await Promise.all(\n  files.map(async file => {\n    const text = await this.readMarkdownFileContent(file);\n    return this.scanTasksInContent(file, text);\n  })\n);\nreturn this.sortTasksForKanban(entries.flat());"
-      },
-      {
-        "language": "js",
-        "code": "// BAD: O(STATUSES.length) per comparison\nconst statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);\n\n// FIX: precompute before sort\nconst statusIndex = new Map(STATUSES.map((s, i) => [s, i]));\nconst touchedMap = new Map(items.map(t => [t, this.getTaskTouchedKey(t)]));\nreturn items.sort((a, b) => {\n  // ...use statusIndex.get(a.status) and touchedMap.get(a)\n});"
-      },
-      {
-        "language": "js",
-        "code": "// BAD: two passes\nitems.map(task => this.formatKanbanCellItem(task)).join(\"\")\n// ...later...\nconst count = visibleTasks.filter(task => task.status.key === status.key).length;\n\n// FIX: group once\nconst byStatus = new Map(STATUSES.map(s => [s.key, []]));\nfor (const task of visibleTasks) byStatus.get(task.status.key)?.push(task);\n// then use byStatus.get(status.key) in both places"
-      },
-      {
-        "language": "js",
-        "code": "// BAD: per-card style recalc\nconst lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight) || 18;\n\n// FIX: compute once outside loop\nconst cards = element.querySelectorAll(\".task-kanban-inline-card\");\nconst firstText = cards[0]?.querySelector(\".task-kanban-inline-text\");\nconst lineHeight = firstText\n  ? (Number.parseFloat(getComputedStyle(firstText).lineHeight) || 18)\n  : 18;\nfor (const card of cards) { /* use lineHeight */ }"
-      },
-      {
-        "language": "js",
-        "code": "// BAD: expensive & fragile (key order)\nconst headingObjects = Array.from(\n  new Set(tasks.map(t => JSON.stringify(t.heading || \"\")).map(s => JSON.parse(s)))\n);\n\n// FIX: deduplicate by text directly\nconst seen = new Set();\nconst headingObjects = [];\nfor (const task of tasks) {\n  const text = task.heading?.text || (typeof task.heading === \"string\" ? task.heading : \"\");\n  if (!seen.has(text)) { seen.add(text); headingObjects.push(task.heading || \"\"); }\n}"
-      },
-      {
-        "language": "js",
-        "code": "// current: sorts, then deduplicates losing the sort\nconst headings = headingObjects.filter(Boolean).map(...).sort(...);\nconst uniqueHeadings = new Map(); // insertion order = sort order? Only if no dupes"
-      },
-      {
-        "language": "js",
-        "code": "const unique = [...new Map(headings.map(h => [h.text, h])).values()];\nunique.sort((a, b) => a.text.localeCompare(b.text));"
-      }
-    ]
+    "sections": [],
+    "codeBlocks": []
   },
-  "rawOutputPreview": "Here's the performance analysis:\n\n---\n\n## Performance Issues Found\n\n### 1. Serial N+1 File Reads — `tasks.js:20-33`\n\n`collectTasks` reads files **sequentially** in a loop. With 100+ markdown files, this is 100 serial `vault.read()` calls.\n\n```js\n// BAD: serial\nfor (const file of files) {\n  const text = await this.readMarkdownFileContent(file);\n  results.push(...this.scanTasksInContent(file, text));\n}\n\n// FIX: parallel\nconst entries = await Promise.all(\n  files.map(async file => {\n    const text = await this.readMarkdownFileContent(file);\n    return this.scanTasksInContent(file, text);\n  })\n);\nreturn this.sortTasksForKanban(entries.flat());\n```\n\n---\n\n### 2. `STATUSES.indexOf()` in Sort Comparator — `state.js:50-69`\n\n`STATUSES.indexOf(a.status)` is O(n) and called **O(k log k)** times per sort (k = task count). Also `getTaskTouchedKey()` recomputed per comparison pair.\n\n```js\n// BAD: O(STATUSES.length) per comparison\nconst statusDiff = STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status);\n\n// FIX: precompute before sort\nconst statusIndex = new Map(STATUSES.map((s, i) => [s, i]));\nconst touchedMap = new Map(items.map(t => [t, this.getTaskTouchedKey(t)]));\nreturn items.sort((a, b) => {\n  // ...use statusIndex.get(a.status) and touchedMap.get(a)\n});\n```\n\n---\n\n### 3. Redundant `visibleTasks.filter()` in `syncInlineKanbanDom` — `inline-dom.js:151-171`\n\nFilter by `status.key` runs **twice** — once to set innerHTML, once to count for headers.\n\n```js\n// BAD: two passes\nitems.map(task => this.formatKanbanCellItem(task)).join(\"\")\n// ...later...\nconst count = visibleTasks.filter(task => task.status.key === status.key).length;\n\n// FIX: group once\nconst byStatus = new Map(STATUSES.map(s => [s.key, []]));\nfor (const task of visibleTasks) byStatus.get(task.status.key)?.push(task);\n// then use byStatus.get(status.key) in both places\n```\n\n---\n\n### 4. `getComputedStyle` in Loop — `inline-dom.js:79`\n\n`getComputedStyle(text).lineHeight` forces style recalc for **every card** on every ",
-  "rawOutputLength": 4452
+  "rawOutputPreview": "You've hit your limit · resets 2:10am (Europe/Moscow)\n",
+  "rawOutputLength": 54
 }

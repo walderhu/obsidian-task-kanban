@@ -34,6 +34,12 @@ async onload() {
     editorCallback: () => this.insertKanbanIntoCurrentFile()
   });
 
+  this.addCommand({
+    id: "cycle-editor-task-checkbox",
+    name: "Cycle task checkbox under cursor",
+    editorCallback: (editor) => this.cycleEditorTaskCheckbox(editor)
+  });
+
   this.registerMarkdownPostProcessor(async (element, context) => {
     const sourceFile = this.app.vault.getAbstractFileByPath(context.sourcePath);
     element.dataset.taskKanbanSourcePath = context.sourcePath;
@@ -230,6 +236,7 @@ Object.assign(
   require("./plugin/markdown-block"),
   require("./plugin/format"),
   require("./plugin/block-ids"),
+  require("./plugin/editor-checkbox"),
   require("./plugin/task-actions")
 );
 
