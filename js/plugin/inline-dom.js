@@ -52,7 +52,8 @@ setAllInlineSubtasksExpanded(element, expand) {
     if (!card.querySelector(":scope > .task-kanban-inline-subtasks")) continue;
     card.classList.toggle("is-expanded", expand);
     this.rememberInlineExpandedState(card, expand);
-    const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle");
+    const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle")
+      || card.querySelector(":scope > .task-kanban-inline-subtasks-toggle");
     if (button) {
       button.setAttribute("aria-expanded", String(expand));
       button.textContent = expand ? "⌄" : "›";

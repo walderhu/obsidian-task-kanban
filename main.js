@@ -543,7 +543,8 @@
       const expanded = !card.classList.contains("is-expanded");
       card.classList.toggle("is-expanded", expanded);
       this.rememberInlineExpandedState(card, expanded);
-      const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle");
+      const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle")
+        || card.querySelector(":scope > .task-kanban-inline-subtasks-toggle");
       if (button) {
         button.setAttribute("aria-expanded", String(expanded));
         button.textContent = expanded ? "⌄" : "›";
@@ -1430,7 +1431,8 @@
         if (!card.querySelector(":scope > .task-kanban-inline-subtasks")) continue;
         card.classList.toggle("is-expanded", expand);
         this.rememberInlineExpandedState(card, expand);
-        const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle");
+        const button = card.querySelector(":scope > .task-kanban-inline-main > .task-kanban-inline-subtasks-toggle")
+          || card.querySelector(":scope > .task-kanban-inline-subtasks-toggle");
         if (button) {
           button.setAttribute("aria-expanded", String(expand));
           button.textContent = expand ? "⌄" : "›";
@@ -2086,11 +2088,14 @@
           ? `${lineAttr} data-block-id="${this.escapeAttribute(task.blockId)}" tabindex="0"`
           : lineAttr;
         const children = task.subtasks?.length ? this.formatInlineSubtasks(task.subtasks) : "";
+        const toggle = task.subtasks?.length
+          ? `<button class="task-kanban-inline-subtasks-toggle" type="button" aria-expanded="false" title="Показать подзадачи">›</button>`
+          : "";
         const status = task.blockId
           ? `<button class="task-kanban-inline-subtask-status" type="button" data-line="${this.escapeAttribute(task.line)}" data-block-id="${this.escapeAttribute(task.blockId)}" data-status-key="${this.escapeAttribute(task.status.key)}" title="${this.escapeAttribute(task.status.title)}">${this.escapeTableText(task.status.icon)}</button>`
           : `<button class="task-kanban-inline-subtask-status" type="button" data-line="${this.escapeAttribute(task.line)}" data-status-key="${this.escapeAttribute(task.status.key)}" title="${this.escapeAttribute(task.status.title)}">${this.escapeTableText(task.status.icon)}</button>`;
         const openButton = `<button class="task-kanban-inline-open" type="button" data-line="${this.escapeAttribute(task.line)}" title="Перейти к задаче">↗</button>`;
-        return `<div class="task-kanban-inline-subtask"${attrs}>${status}<span class="task-kanban-inline-subtask-text">${this.escapeTableText(task.text)}</span>${openButton}${children}</div>`;
+        return `<div class="task-kanban-inline-subtask"${attrs}>${toggle}${status}<span class="task-kanban-inline-subtask-text">${this.escapeTableText(task.text)}</span>${openButton}${children}</div>`;
       }).join("");
       return `<div class="task-kanban-inline-subtasks">${items}</div>`;
     },

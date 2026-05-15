@@ -301,11 +301,16 @@
   border-color: var(--interactive-accent);
 }
 
+.markdown-rendered .task-kanban-inline-subtask > .task-kanban-inline-subtasks,
+.cm-html-embed .task-kanban-inline-subtask > .task-kanban-inline-subtasks {
+  flex-basis: 100%;
+}
+
 .markdown-rendered .task-kanban-inline-subtasks,
 .cm-html-embed .task-kanban-inline-subtasks {
   display: none;
-  margin: 6px 0 0 0.45em;
-  padding-left: 0.7em;
+  margin: 4px 0 0 0.9em;
+  padding-left: 0.5em;
   border-left: 1px solid var(--background-modifier-border);
 }
 
