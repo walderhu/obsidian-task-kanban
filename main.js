@@ -1670,8 +1670,11 @@
       })));
       const menu = element.querySelector(".task-kanban-inline-filter-menu");
       if (!menu) return new Set(headingTexts);
+      const valueCheckboxes = menu.querySelectorAll("input[type='checkbox'][value]");
+      // No heading checkboxes = file has no headings → show all tasks
+      if (valueCheckboxes.length === 0) return new Set(headingTexts);
       return new Set(
-        Array.from(menu.querySelectorAll("input[type='checkbox'][value]:checked")).map(i => i.value)
+        Array.from(valueCheckboxes).filter(i => i.checked).map(i => i.value)
       );
     },
     
