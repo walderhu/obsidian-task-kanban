@@ -165,7 +165,9 @@ updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks, fallbackLine =
     }
     const indentLevel = this.getIndentLevel(taskMatch[1] || "");
     if (index > startIndex && (!includeSubtasks || indentLevel <= startIndent)) break;
-    const nextLine = lines[index].replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
+    const nextLine = status
+      ? lines[index].replace(TASK_LINE_RE, `$1- [${status.marker}] $3`)
+      : lines[index].replace(TASK_LINE_RE, `$1- $3`);
     if (nextLine !== lines[index]) {
       lines[index] = nextLine;
       changed = true;

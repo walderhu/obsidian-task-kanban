@@ -575,6 +575,7 @@
     },
     
     getNextSubtaskStatus(status) {
+      if (status?.key === "canceled") return null;
       const index = SUBTASK_STATUS_CYCLE.indexOf(status);
       if (index < 0) return SUBTASK_STATUS_CYCLE[0];
       return SUBTASK_STATUS_CYCLE[(index + 1) % SUBTASK_STATUS_CYCLE.length];
@@ -808,7 +809,9 @@
         }
         const indentLevel = this.getIndentLevel(taskMatch[1] || "");
         if (index > startIndex && (!includeSubtasks || indentLevel <= startIndent)) break;
-        const nextLine = lines[index].replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
+        const nextLine = status
+          ? lines[index].replace(TASK_LINE_RE, `$1- [${status.marker}] $3`)
+          : lines[index].replace(TASK_LINE_RE, `$1- $3`);
         if (nextLine !== lines[index]) {
           lines[index] = nextLine;
           changed = true;
