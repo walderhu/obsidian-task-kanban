@@ -58,12 +58,26 @@
 
 .markdown-rendered table:has(.task-kanban-inline-marker),
 .cm-html-embed table:has(.task-kanban-inline-marker) {
-  display: table;
+  display: block;
   width: 100%;
-  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
 }
+
+.markdown-rendered table:has(.task-kanban-inline-marker) thead,
+.markdown-rendered table:has(.task-kanban-inline-marker) tbody,
+.cm-html-embed table:has(.task-kanban-inline-marker) thead,
+.cm-html-embed table:has(.task-kanban-inline-marker) tbody {
+  display: block;
+  width: 100%;
+}
+
+.markdown-rendered table:has(.task-kanban-inline-marker) tr,
+.cm-html-embed table:has(.task-kanban-inline-marker) tr {
+  display: flex;
+  width: 100%;
+}
+
 
 .markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) .callout-content,
 .markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) table,
@@ -102,8 +116,10 @@
 .markdown-rendered table:has(.task-kanban-inline-marker) td,
 .cm-html-embed table:has(.task-kanban-inline-marker) th,
 .cm-html-embed table:has(.task-kanban-inline-marker) td {
+  display: block;
+  flex: 1 0 280px;
   min-width: 280px;
-  vertical-align: top;
+  box-sizing: border-box;
 }
 
 .markdown-rendered .task-kanban-inline-column,
