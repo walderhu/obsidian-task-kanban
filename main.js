@@ -252,12 +252,6 @@
       this.addRibbonIcon("layout-dashboard", "Task Kanban", () => this.activateView());
     
       this.addCommand({
-        id: "open-task-kanban",
-        name: "Open Task Kanban",
-        callback: () => this.activateView()
-      });
-    
-      this.addCommand({
         id: "insert-current-file-kanban",
         name: "Insert/update Kanban in current file",
         editorCallback: () => this.insertKanbanIntoCurrentFile()
