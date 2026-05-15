@@ -58,21 +58,11 @@
 
 .markdown-rendered table:has(.task-kanban-inline-marker),
 .cm-html-embed table:has(.task-kanban-inline-marker) {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.markdown-rendered table:has(.task-kanban-inline-marker) > thead,
-.markdown-rendered table:has(.task-kanban-inline-marker) > tbody,
-.cm-html-embed table:has(.task-kanban-inline-marker) > thead,
-.cm-html-embed table:has(.task-kanban-inline-marker) > tbody {
   display: table;
   width: 100%;
   table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 .markdown-rendered .callout.is-collapsed:has(.task-kanban-inline-marker) .callout-content,
@@ -104,6 +94,7 @@
 
 .markdown-rendered .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker) .callout-content,
 .cm-html-embed .callout[data-callout="task-kanban"]:has(.task-kanban-inline-marker) .callout-content {
+  overflow-x: auto;
   padding-top: 8px;
 }
 
