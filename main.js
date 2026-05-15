@@ -402,9 +402,17 @@
         }
       });
     
-      // Чекбоксы в редакторе — обновляют канбан сразу.
-      // Фоновые события (modify, metadataCache, editor-change) отключены — не лагают при старте.
-      // Новые задачи подхватываются только через кнопку "Обновить".
+      // editor-change: только синхронизация родительских статусов + обновление DOM канбана.
+      // Полная перестройка канбана (modify/metadataCache) отключена — не лагает при старте.
+      this.registerEvent(this.app.workspace.on("editor-change", (_editor, info) => {
+        const file = info?.file;
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        window.clearTimeout(this._parentSyncTimer);
+        this._parentSyncTimer = window.setTimeout(() => {
+          this.syncParentsInActiveEditor(file);
+          this.scheduleInlineKanbanRefresh(file, 0);
+        }, 300);
+      }));
       this.registerDomEvent(document, "click", (event) => {
         this.handleEditorCheckboxEvent(event);
       }, true);
@@ -814,7 +822,65 @@
         }
       }
     
+      // Propagate status up the parent chain
+      if (changed) {
+        let idx = startIndex;
+        while ((idx = this.syncParentStatusFromSubtasks(lines, idx)) >= 0) {}
+      }
+    
       return changed;
+    },
+    
+    // Returns parentIndex if parent was updated, -1 otherwise.
+    syncParentStatusFromSubtasks(lines, childIndex) {
+      const childMatch = lines[childIndex]?.match(TASK_LINE_RE);
+      if (!childMatch) return -1;
+      const childIndent = this.getIndentLevel(childMatch[1] || "");
+      if (childIndent === 0) return -1;
+    
+      // Find nearest parent (lower indent above childIndex)
+      let parentIndex = -1;
+      let parentIndent = -1;
+      for (let i = childIndex - 1; i >= 0; i--) {
+        const m = lines[i].match(TASK_LINE_RE);
+        if (!m) continue;
+        const indent = this.getIndentLevel(m[1] || "");
+        if (indent < childIndent) {
+          parentIndex = i;
+          parentIndent = indent;
+          break;
+        }
+      }
+      if (parentIndex < 0) return -1;
+    
+      // Gather all descendants of parent
+      const descendantKeys = [];
+      for (let i = parentIndex + 1; i < lines.length; i++) {
+        const m = lines[i].match(TASK_LINE_RE);
+        if (!m) continue;
+        const indent = this.getIndentLevel(m[1] || "");
+        if (indent <= parentIndent) break;
+        descendantKeys.push(STATUS_BY_MARKER.get(m[2])?.key || "open");
+      }
+      if (descendantKeys.length === 0) return -1;
+    
+      const allDone = descendantKeys.every(k => k === "done");
+      const allOpen = descendantKeys.every(k => k === "open");
+      const anyActive = descendantKeys.some(k => k === "done" || k === "progress");
+    
+      let newKey;
+      if (allDone) newKey = "done";
+      else if (allOpen) newKey = "open";
+      else if (anyActive) newKey = "progress";
+      else return -1;
+    
+      const parentMatch = lines[parentIndex].match(TASK_LINE_RE);
+      const currentKey = STATUS_BY_MARKER.get(parentMatch[2])?.key || "open";
+      if (newKey === currentKey) return -1;
+    
+      const newStatus = STATUS_BY_KEY.get(newKey);
+      lines[parentIndex] = lines[parentIndex].replace(TASK_LINE_RE, `$1- [${newStatus.marker}] $3`);
+      return parentIndex;
     }
     };
     
@@ -881,10 +947,36 @@
       if (!this.isMarkdownCheckboxEventTarget(event.target)) return;
       const file = this.app.workspace.getActiveFile();
       this.rememberActiveEditorTaskTouched(file);
-      this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
-      window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), INLINE_KANBAN_EDITOR_REFRESH_DELAY);
-      // Backup refresh: Obsidian may write the file to disk later than the event fires
-      window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), 1200);
+      // After Obsidian toggles the checkbox, sync parent statuses and refresh kanban
+      window.setTimeout(() => {
+        this.syncParentsInActiveEditor(file);
+        this.handleMarkdownTaskStateChanged(file, 0);
+      }, 80);
+    },
+    
+    syncParentsInActiveEditor(file) {
+      if (!(file instanceof TFile) || file.extension !== "md") return;
+      const view = this.findOpenMarkdownView(file);
+      if (!view?.editor?.getValue || !view.editor.replaceRange) return;
+      const content = view.editor.getValue();
+      const lines = content.split(/\r?\n/);
+      const originalLines = content.split(/\r?\n/);
+    
+      // Bottom-to-top: children processed before their parents
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].match(TASK_LINE_RE)) {
+          this.syncParentStatusFromSubtasks(lines, i);
+        }
+      }
+    
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i] === originalLines[i]) continue;
+        view.editor.replaceRange(
+          lines[i],
+          { line: i, ch: 0 },
+          { line: i, ch: (originalLines[i] || "").length }
+        );
+      }
     },
     
     rememberActiveEditorTaskTouched(file) {

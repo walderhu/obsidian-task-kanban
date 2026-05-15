@@ -174,6 +174,64 @@ updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks, fallbackLine =
     }
   }
 
+  // Propagate status up the parent chain
+  if (changed) {
+    let idx = startIndex;
+    while ((idx = this.syncParentStatusFromSubtasks(lines, idx)) >= 0) {}
+  }
+
   return changed;
+},
+
+// Returns parentIndex if parent was updated, -1 otherwise.
+syncParentStatusFromSubtasks(lines, childIndex) {
+  const childMatch = lines[childIndex]?.match(TASK_LINE_RE);
+  if (!childMatch) return -1;
+  const childIndent = this.getIndentLevel(childMatch[1] || "");
+  if (childIndent === 0) return -1;
+
+  // Find nearest parent (lower indent above childIndex)
+  let parentIndex = -1;
+  let parentIndent = -1;
+  for (let i = childIndex - 1; i >= 0; i--) {
+    const m = lines[i].match(TASK_LINE_RE);
+    if (!m) continue;
+    const indent = this.getIndentLevel(m[1] || "");
+    if (indent < childIndent) {
+      parentIndex = i;
+      parentIndent = indent;
+      break;
+    }
+  }
+  if (parentIndex < 0) return -1;
+
+  // Gather all descendants of parent
+  const descendantKeys = [];
+  for (let i = parentIndex + 1; i < lines.length; i++) {
+    const m = lines[i].match(TASK_LINE_RE);
+    if (!m) continue;
+    const indent = this.getIndentLevel(m[1] || "");
+    if (indent <= parentIndent) break;
+    descendantKeys.push(STATUS_BY_MARKER.get(m[2])?.key || "open");
+  }
+  if (descendantKeys.length === 0) return -1;
+
+  const allDone = descendantKeys.every(k => k === "done");
+  const allOpen = descendantKeys.every(k => k === "open");
+  const anyActive = descendantKeys.some(k => k === "done" || k === "progress");
+
+  let newKey;
+  if (allDone) newKey = "done";
+  else if (allOpen) newKey = "open";
+  else if (anyActive) newKey = "progress";
+  else return -1;
+
+  const parentMatch = lines[parentIndex].match(TASK_LINE_RE);
+  const currentKey = STATUS_BY_MARKER.get(parentMatch[2])?.key || "open";
+  if (newKey === currentKey) return -1;
+
+  const newStatus = STATUS_BY_KEY.get(newKey);
+  lines[parentIndex] = lines[parentIndex].replace(TASK_LINE_RE, `$1- [${newStatus.marker}] $3`);
+  return parentIndex;
 }
 };

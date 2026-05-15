@@ -173,9 +173,17 @@ async onload() {
     }
   });
 
-  // Чекбоксы в редакторе — обновляют канбан сразу.
-  // Фоновые события (modify, metadataCache, editor-change) отключены — не лагают при старте.
-  // Новые задачи подхватываются только через кнопку "Обновить".
+  // editor-change: только синхронизация родительских статусов + обновление DOM канбана.
+  // Полная перестройка канбана (modify/metadataCache) отключена — не лагает при старте.
+  this.registerEvent(this.app.workspace.on("editor-change", (_editor, info) => {
+    const file = info?.file;
+    if (!(file instanceof TFile) || file.extension !== "md") return;
+    window.clearTimeout(this._parentSyncTimer);
+    this._parentSyncTimer = window.setTimeout(() => {
+      this.syncParentsInActiveEditor(file);
+      this.scheduleInlineKanbanRefresh(file, 0);
+    }, 300);
+  }));
   this.registerDomEvent(document, "click", (event) => {
     this.handleEditorCheckboxEvent(event);
   }, true);

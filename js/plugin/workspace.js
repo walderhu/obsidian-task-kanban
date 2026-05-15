@@ -59,10 +59,36 @@ handleEditorCheckboxEvent(event) {
   if (!this.isMarkdownCheckboxEventTarget(event.target)) return;
   const file = this.app.workspace.getActiveFile();
   this.rememberActiveEditorTaskTouched(file);
-  this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_CHECKBOX_REFRESH_DELAY);
-  window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), INLINE_KANBAN_EDITOR_REFRESH_DELAY);
-  // Backup refresh: Obsidian may write the file to disk later than the event fires
-  window.setTimeout(() => this.handleMarkdownTaskStateChanged(file, 0), 1200);
+  // After Obsidian toggles the checkbox, sync parent statuses and refresh kanban
+  window.setTimeout(() => {
+    this.syncParentsInActiveEditor(file);
+    this.handleMarkdownTaskStateChanged(file, 0);
+  }, 80);
+},
+
+syncParentsInActiveEditor(file) {
+  if (!(file instanceof TFile) || file.extension !== "md") return;
+  const view = this.findOpenMarkdownView(file);
+  if (!view?.editor?.getValue || !view.editor.replaceRange) return;
+  const content = view.editor.getValue();
+  const lines = content.split(/\r?\n/);
+  const originalLines = content.split(/\r?\n/);
+
+  // Bottom-to-top: children processed before their parents
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].match(TASK_LINE_RE)) {
+      this.syncParentStatusFromSubtasks(lines, i);
+    }
+  }
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i] === originalLines[i]) continue;
+    view.editor.replaceRange(
+      lines[i],
+      { line: i, ch: 0 },
+      { line: i, ch: (originalLines[i] || "").length }
+    );
+  }
 },
 
 rememberActiveEditorTaskTouched(file) {
