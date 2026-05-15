@@ -242,10 +242,9 @@
 
 .markdown-rendered table:has(.task-kanban-inline-marker),
 .cm-html-embed table:has(.task-kanban-inline-marker) {
-  display: table;
+  display: block;
   width: 100%;
   max-width: 100%;
-  table-layout: fixed;
   overflow-x: auto;
   border-collapse: separate;
   border-spacing: 0;
@@ -287,7 +286,9 @@
 .markdown-rendered table:has(.task-kanban-inline-marker) td,
 .cm-html-embed table:has(.task-kanban-inline-marker) th,
 .cm-html-embed table:has(.task-kanban-inline-marker) td {
+  width: 280px;
   min-width: 280px;
+  max-width: 280px;
   vertical-align: top;
 }
 
