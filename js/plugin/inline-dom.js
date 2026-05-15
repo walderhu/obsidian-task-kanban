@@ -264,8 +264,9 @@ renderInlineHeadingFilter(element, tasks) {
     ? previousSelected
     : Array.isArray(savedSelected) ? new Set(savedSelected) : new Set(headingTexts);
   menu.dataset.initialized = "true";
-  const allChecked = headingTexts.length > 0 && headingTexts.every(h => selected.has(h));
   const tree = this.buildHeadingTree(headingObjects);
+  // No tree nodes = no real headings → always all-checked
+  const allChecked = tree.length === 0 || (headingTexts.length > 0 && headingTexts.every(h => selected.has(h)));
   menu.innerHTML = `<label class="task-kanban-inline-filter-option task-kanban-inline-filter-all" data-filter-all="true"><input type="checkbox"${allChecked ? " checked" : ""}>Все</label>${this.renderHeadingTreeNodes(tree, selected, expandedHeadings, 0)}`;
 },
 
@@ -294,9 +295,12 @@ getInlineSelectedHeadings(element, tasks) {
   const valueCheckboxes = menu.querySelectorAll("input[type='checkbox'][value]");
   // No heading checkboxes = file has no headings → show all tasks
   if (valueCheckboxes.length === 0) return new Set(headingTexts);
-  return new Set(
+  const result = new Set(
     Array.from(valueCheckboxes).filter(i => i.checked).map(i => i.value)
   );
+  // Tasks with no heading are always shown regardless of filter
+  if (headingTexts.includes("")) result.add("");
+  return result;
 },
 
 restoreInlineExpandedState(element, expandedBlockIds) {
