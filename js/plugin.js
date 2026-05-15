@@ -173,16 +173,9 @@ async onload() {
     }
   });
 
-  this.registerEvent(this.app.vault.on("modify", (file) => {
-    this.handleMarkdownTaskStateChanged(file);
-  }));
-  this.registerEvent(this.app.metadataCache.on("changed", (file) => {
-    this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_EDITOR_REFRESH_DELAY);
-  }));
-  this.registerEvent(this.app.workspace.on("editor-change", (_editor, info) => {
-    const file = info?.file;
-    this.handleMarkdownTaskStateChanged(file, INLINE_KANBAN_EDITOR_REFRESH_DELAY);
-  }));
+  // Чекбоксы в редакторе — обновляют канбан сразу.
+  // Фоновые события (modify, metadataCache, editor-change) отключены — не лагают при старте.
+  // Новые задачи подхватываются только через кнопку "Обновить".
   this.registerDomEvent(document, "click", (event) => {
     this.handleEditorCheckboxEvent(event);
   }, true);
@@ -191,10 +184,6 @@ async onload() {
   }, true);
   this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
     this.refreshOpenViews();
-    const file = this.app.workspace.getActiveFile();
-    if (file instanceof TFile && file.extension === "md") {
-      this.scheduleInlineKanbanRefresh(file, 0);
-    }
   }));
   this.registerEvent(this.app.vault.on("create", (file) => {
     if (!(file instanceof TFile) || file.extension !== "md") return;
