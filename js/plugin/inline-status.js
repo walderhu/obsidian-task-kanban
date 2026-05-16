@@ -76,14 +76,14 @@ async setInlineTaskStatus(file, blockId, status, includeSubtasks, rebuildKanban 
   if (!this.canEditInlineKanban(file.path)) return;
   const openView = this.findOpenMarkdownView(file);
   if (openView?.editor?.getValue && openView.editor.replaceRange) {
-    const preEditState = rebuildKanban ? this.captureActiveEditorState(file) : null;
+    const preEditState = this.captureActiveEditorState(file);
     const changed = this.updateTaskStatusInEditor(file, openView.editor, blockId, status, includeSubtasks, fallbackLine);
     if (changed) {
       await this.rememberTaskTouched({ file, line: fallbackLine ?? 0, blockId, raw: blockId || "" });
       if (rebuildKanban && preEditState) {
-        // Pass editor only — cursor/scroll intentionally not restored here to avoid
-        // jumping to the task line when cursor was previously set by openInlineTask
-        this.refreshInlineKanbanBlockInEditor(file, { editor: preEditState.editor, cursor: null, scrollInfo: null });
+        this.refreshInlineKanbanBlockInEditor(file, preEditState);
+      } else {
+        this.restoreActiveEditorState(preEditState);
       }
       return true;
     }

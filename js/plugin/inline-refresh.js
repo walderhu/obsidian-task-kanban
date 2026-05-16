@@ -116,13 +116,15 @@ findOpenMarkdownView(file) {
 },
 
 restoreActiveEditorState(state) {
-  if (!state?.editor || !state.cursor) return;
-  window.requestAnimationFrame(() => {
-    state.editor.setCursor(state.cursor);
+  if (!state?.editor) return;
+  const restore = () => {
+    if (state.cursor) state.editor.setCursor(state.cursor);
     if (state.scrollInfo && state.editor.scrollTo) {
       state.editor.scrollTo(state.scrollInfo.left, state.scrollInfo.top);
     }
-  });
+  };
+  restore();
+  window.requestAnimationFrame(restore);
 },
 
 hasKanbanBlock(content) {
