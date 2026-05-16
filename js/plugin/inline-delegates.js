@@ -95,6 +95,14 @@ bindInlineKanbanDelegates(element, sourcePath) {
     if (target.closest(".task-kanban-inline-open")) return;
     if (!target.closest(".task-kanban-inline-subtask-status, .task-kanban-inline-subtask-text, .task-kanban-inline-subtask")) return;
 
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      await this.openInlineTask(sourcePath, this.getInlineLine(subtask));
+      return;
+    }
+
     if (!this.canEditInlineKanban(sourcePath)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -162,6 +170,10 @@ bindInlineKanbanDelegates(element, sourcePath) {
     if (!card || !element.contains(card)) return;
     event.preventDefault();
     event.stopPropagation();
+    if (event.ctrlKey || event.metaKey) {
+      await this.openInlineTask(sourcePath, this.getInlineLine(card));
+      return;
+    }
     if (card.classList.contains("task-kanban-inline-subtask")) {
       if (!this.canEditInlineKanban(sourcePath)) return;
       await this.toggleInlineSubtaskStatus(card, sourcePath);

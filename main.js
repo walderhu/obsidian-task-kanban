@@ -341,8 +341,12 @@
           button.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
-            if (!this.canEditInlineKanban(context.sourcePath)) return;
             const subtask = button.closest(".task-kanban-inline-subtask");
+            if (event.ctrlKey || event.metaKey) {
+              await this.openInlineTask(context.sourcePath, this.getInlineLine(subtask || button));
+              return;
+            }
+            if (!this.canEditInlineKanban(context.sourcePath)) return;
             await this.toggleInlineSubtaskStatus(subtask, context.sourcePath);
           });
         }
@@ -351,6 +355,10 @@
             if (event.target.closest("button")) return;
             event.preventDefault();
             event.stopPropagation();
+            if (event.ctrlKey || event.metaKey) {
+              await this.openInlineTask(context.sourcePath, this.getInlineLine(card));
+              return;
+            }
             if (card.classList.contains("task-kanban-inline-subtask")) {
               if (!this.canEditInlineKanban(context.sourcePath)) return;
               await this.toggleInlineSubtaskStatus(card, context.sourcePath);
@@ -1164,6 +1172,14 @@
         if (target.closest(".task-kanban-inline-open")) return;
         if (!target.closest(".task-kanban-inline-subtask-status, .task-kanban-inline-subtask-text, .task-kanban-inline-subtask")) return;
     
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          await this.openInlineTask(sourcePath, this.getInlineLine(subtask));
+          return;
+        }
+    
         if (!this.canEditInlineKanban(sourcePath)) return;
         event.preventDefault();
         event.stopPropagation();
@@ -1231,6 +1247,10 @@
         if (!card || !element.contains(card)) return;
         event.preventDefault();
         event.stopPropagation();
+        if (event.ctrlKey || event.metaKey) {
+          await this.openInlineTask(sourcePath, this.getInlineLine(card));
+          return;
+        }
         if (card.classList.contains("task-kanban-inline-subtask")) {
           if (!this.canEditInlineKanban(sourcePath)) return;
           await this.toggleInlineSubtaskStatus(card, sourcePath);

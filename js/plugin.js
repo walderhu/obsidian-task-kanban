@@ -112,8 +112,12 @@ async onload() {
       button.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (!this.canEditInlineKanban(context.sourcePath)) return;
         const subtask = button.closest(".task-kanban-inline-subtask");
+        if (event.ctrlKey || event.metaKey) {
+          await this.openInlineTask(context.sourcePath, this.getInlineLine(subtask || button));
+          return;
+        }
+        if (!this.canEditInlineKanban(context.sourcePath)) return;
         await this.toggleInlineSubtaskStatus(subtask, context.sourcePath);
       });
     }
@@ -122,6 +126,10 @@ async onload() {
         if (event.target.closest("button")) return;
         event.preventDefault();
         event.stopPropagation();
+        if (event.ctrlKey || event.metaKey) {
+          await this.openInlineTask(context.sourcePath, this.getInlineLine(card));
+          return;
+        }
         if (card.classList.contains("task-kanban-inline-subtask")) {
           if (!this.canEditInlineKanban(context.sourcePath)) return;
           await this.toggleInlineSubtaskStatus(card, context.sourcePath);
