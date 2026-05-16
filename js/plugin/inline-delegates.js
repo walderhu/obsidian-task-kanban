@@ -81,7 +81,6 @@ bindInlineKanbanDelegates(element, sourcePath) {
   element.addEventListener("click", async (event) => {
     const openButton = event.target.closest(".task-kanban-inline-open");
     if (!openButton || !element.contains(openButton)) return;
-    if (openButton.closest(".cm-editor, .markdown-source-view, .cm-html-embed")) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation?.();

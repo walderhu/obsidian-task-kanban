@@ -407,7 +407,8 @@
 
 .markdown-rendered .task-kanban-inline-text-toggle,
 .markdown-rendered .task-kanban-inline-open,
-.cm-html-embed .task-kanban-inline-text-toggle {
+.cm-html-embed .task-kanban-inline-text-toggle,
+.cm-html-embed .task-kanban-inline-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -439,25 +440,18 @@
   opacity: 1;
 }
 
-.markdown-rendered .task-kanban-inline-open {
+.markdown-rendered .task-kanban-inline-open,
+.cm-html-embed .task-kanban-inline-open {
   margin-left: 0;
   opacity: 1;
 }
 
 .markdown-rendered .task-kanban-inline-text-toggle:hover,
 .markdown-rendered .task-kanban-inline-open:hover,
-.cm-html-embed .task-kanban-inline-text-toggle:hover {
+.cm-html-embed .task-kanban-inline-text-toggle:hover,
+.cm-html-embed .task-kanban-inline-open:hover {
   color: var(--text-normal);
   border-color: var(--interactive-accent);
-}
-
-.cm-html-embed .task-kanban-inline-open {
-  display: none !important;
-}
-
-.markdown-source-view .task-kanban-inline-open,
-.cm-editor .task-kanban-inline-open {
-  display: none !important;
 }
 
 .markdown-rendered .task-kanban-inline-subtasks-toggle,
