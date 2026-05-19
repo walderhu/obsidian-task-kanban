@@ -48,7 +48,12 @@ bindInlineKanbanDelegates(element, sourcePath) {
         const expanded = wasCollapsed || !filter.classList.contains("is-open");
         filter.classList.toggle("is-open", expanded);
         toggle.setAttribute("aria-expanded", String(expanded));
-        if (expanded) this.closeInlineSorts(element);
+        if (expanded) {
+          this.closeInlineSorts(element);
+          this.positionInlineFloatingMenu(toggle, filter.querySelector(".task-kanban-inline-filter-menu"));
+        } else {
+          this.resetInlineFloatingMenu(filter.querySelector(".task-kanban-inline-filter-menu"));
+        }
         return;
       }
       const sort = event.target.closest(".task-kanban-inline-sort");
@@ -62,7 +67,12 @@ bindInlineKanbanDelegates(element, sourcePath) {
         const expanded = !sort.classList.contains("is-open");
         sort.classList.toggle("is-open", expanded);
         toggle.setAttribute("aria-expanded", String(expanded));
-        if (expanded) this.closeInlineFilters(element);
+        if (expanded) {
+          this.closeInlineFilters(element);
+          this.positionInlineFloatingMenu(toggle, sort.querySelector(".task-kanban-inline-sort-menu"));
+        } else {
+          this.resetInlineFloatingMenu(sort.querySelector(".task-kanban-inline-sort-menu"));
+        }
         return;
       }
     }, true);
@@ -138,6 +148,11 @@ bindInlineKanbanDelegates(element, sourcePath) {
       const expanded = !filter?.classList.contains("is-open");
       filter?.classList.toggle("is-open", expanded);
       filterToggle.setAttribute("aria-expanded", String(expanded));
+      if (expanded) {
+        this.positionInlineFloatingMenu(filterToggle, filter?.querySelector(".task-kanban-inline-filter-menu"));
+      } else {
+        this.resetInlineFloatingMenu(filter?.querySelector(".task-kanban-inline-filter-menu"));
+      }
       return;
     }
 

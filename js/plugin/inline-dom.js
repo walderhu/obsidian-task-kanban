@@ -37,6 +37,7 @@ closeInlineFilters(element) {
   for (const filter of element.querySelectorAll(".task-kanban-inline-filter.is-open")) {
     filter.classList.remove("is-open");
     filter.querySelector(".task-kanban-inline-filter-toggle")?.setAttribute("aria-expanded", "false");
+    this.resetInlineFloatingMenu(filter.querySelector(".task-kanban-inline-filter-menu"));
   }
 },
 
@@ -44,7 +45,37 @@ closeInlineSorts(element) {
   for (const sort of element.querySelectorAll(".task-kanban-inline-sort.is-open")) {
     sort.classList.remove("is-open");
     sort.querySelector(".task-kanban-inline-sort-toggle")?.setAttribute("aria-expanded", "false");
+    this.resetInlineFloatingMenu(sort.querySelector(".task-kanban-inline-sort-menu"));
   }
+},
+
+resetInlineFloatingMenu(menu) {
+  if (!menu) return;
+  menu.style.removeProperty("--task-kanban-menu-left");
+  menu.style.removeProperty("--task-kanban-menu-top");
+  menu.style.removeProperty("--task-kanban-menu-width");
+},
+
+positionInlineFloatingMenu(toggle, menu) {
+  if (!toggle || !menu) return;
+  const rect = toggle.getBoundingClientRect();
+  const gap = 6;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const maxWidth = Math.max(160, viewportWidth - 32);
+  const preferredWidth = Math.min(menu.classList.contains("task-kanban-inline-filter-menu") ? 360 : 220, maxWidth);
+  const left = Math.max(16, Math.min(rect.right - preferredWidth, viewportWidth - preferredWidth - 16));
+  let top = rect.bottom + gap;
+
+  const availableBelow = viewportHeight - top - 16;
+  const menuHeight = Math.min(menu.scrollHeight || 260, 260);
+  if (availableBelow < Math.min(menuHeight, 120) && rect.top > menuHeight + gap) {
+    top = rect.top - menuHeight - gap;
+  }
+
+  menu.style.setProperty("--task-kanban-menu-left", `${Math.round(left)}px`);
+  menu.style.setProperty("--task-kanban-menu-top", `${Math.round(Math.max(16, top))}px`);
+  menu.style.setProperty("--task-kanban-menu-width", `${Math.round(preferredWidth)}px`);
 },
 
 setAllInlineSubtasksExpanded(element, expand) {
