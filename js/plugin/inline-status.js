@@ -165,8 +165,11 @@ updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks, fallbackLine =
     }
     const indentLevel = this.getIndentLevel(taskMatch[1] || "");
     if (index > startIndex && (!includeSubtasks || indentLevel <= startIndent)) break;
-    const nextLine = status
-      ? lines[index].replace(TASK_LINE_RE, `$1- [${status.marker}] $3`)
+    const nextStatus = index === startIndex
+      ? status
+      : this.getCascadedSubtaskStatus(status, STATUS_BY_MARKER.get(taskMatch[2]) || STATUSES[0]);
+    const nextLine = nextStatus
+      ? lines[index].replace(TASK_LINE_RE, `$1- [${nextStatus.marker}] $3`)
       : lines[index].replace(TASK_LINE_RE, `$1- $3`);
     if (nextLine !== lines[index]) {
       lines[index] = nextLine;
@@ -181,6 +184,15 @@ updateTaskLinesByBlockId(lines, blockId, status, includeSubtasks, fallbackLine =
   }
 
   return changed;
+},
+
+getCascadedSubtaskStatus(parentStatus, currentStatus) {
+  if (!parentStatus) return parentStatus;
+  if (parentStatus.key === "canceled") {
+    if (currentStatus?.key === "open" || currentStatus?.key === "progress") return parentStatus;
+    return currentStatus;
+  }
+  return parentStatus;
 },
 
 // Returns parentIndex if parent was updated, -1 otherwise.

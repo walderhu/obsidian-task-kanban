@@ -22,14 +22,17 @@ async setTaskStatus(task, status) {
   if (openView?.editor) {
     const content = openView.editor.getValue();
     const lines = content.split(/\r?\n/);
-    const line = lines[task.line] || "";
-    const nextLine = line.replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
-    if (nextLine === line) return;
-    openView.editor.replaceRange(
-      nextLine,
-      { line: task.line, ch: 0 },
-      { line: task.line, ch: line.length }
-    );
+    const changed = this.updateTaskLinesByBlockId(lines, task.blockId, status, true, task.line);
+    if (!changed) return;
+    for (let index = lines.length - 1; index >= 0; index--) {
+      const line = openView.editor.getLine(index) || "";
+      if (lines[index] === line) continue;
+      openView.editor.replaceRange(
+        lines[index],
+        { line: index, ch: 0 },
+        { line: index, ch: line.length }
+      );
+    }
     await this.rememberTaskTouched(task);
     return;
   }
@@ -37,11 +40,8 @@ async setTaskStatus(task, status) {
   let changed = false;
   await this.app.vault.process(task.file, (content) => {
     const lines = content.split(/\r?\n/);
-    const line = lines[task.line] || "";
-    const nextLine = line.replace(TASK_LINE_RE, `$1- [${status.marker}] $3`);
-    if (nextLine === line) return content;
+    if (!this.updateTaskLinesByBlockId(lines, task.blockId, status, true, task.line)) return content;
     changed = true;
-    lines[task.line] = nextLine;
     return lines.join("\n");
   });
   if (changed) await this.rememberTaskTouched(task);

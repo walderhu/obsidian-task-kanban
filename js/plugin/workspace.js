@@ -58,10 +58,13 @@ handleMarkdownTaskStateChanged(file, delay = INLINE_KANBAN_CHECKBOX_REFRESH_DELA
 handleEditorCheckboxEvent(event) {
   if (!this.isMarkdownCheckboxEventTarget(event.target)) return;
   const file = this.app.workspace.getActiveFile();
-  this.rememberActiveEditorTaskTouched(file);
-  // After Obsidian toggles the checkbox, sync parent statuses and refresh kanban
-  window.setTimeout(() => {
-    this.syncParentsInActiveEditor(file);
+  const changedLine = this.getEditorCheckboxEventLine(event, file);
+  this.rememberActiveEditorTaskTouched(file, changedLine);
+  window.clearTimeout(this._parentSyncTimer);
+  window.clearTimeout(this._checkboxCascadeTimer);
+  // Let Obsidian apply the direct checkbox edit first, then cascade from that final line state.
+  this._checkboxCascadeTimer = window.setTimeout(() => {
+    this.syncTaskTreeFromActiveEditorChange(file, changedLine);
     this.handleMarkdownTaskStateChanged(file, 0);
   }, 80);
 },
@@ -91,18 +94,117 @@ syncParentsInActiveEditor(file) {
   }
 },
 
-rememberActiveEditorTaskTouched(file) {
+syncTaskTreeFromActiveEditorChange(file, changedLine = null) {
   if (!(file instanceof TFile) || file.extension !== "md") return;
   const view = this.findOpenMarkdownView(file);
-  const line = view?.editor?.getCursor?.()?.line;
-  if (!Number.isInteger(line)) return;
-  const raw = view.editor.getLine?.(line) || "";
+  if (!view?.editor?.getValue || !view.editor.replaceRange) return;
+  const targetLine = Number.isInteger(changedLine) ? changedLine : view.editor.getCursor?.()?.line;
+  const content = view.editor.getValue();
+  const lines = content.split(/\r?\n/);
+  const originalLines = content.split(/\r?\n/);
+
+  if (Number.isInteger(targetLine) && this.taskLineHasSubtasks(lines, targetLine)) {
+    const taskMatch = lines[targetLine]?.match(TASK_LINE_RE);
+    const status = STATUS_BY_MARKER.get(taskMatch?.[2]) || STATUSES[0];
+    this.updateTaskLinesByBlockId(lines, null, status, true, targetLine);
+  } else {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].match(TASK_LINE_RE)) {
+        this.syncParentStatusFromSubtasks(lines, i);
+      }
+    }
+  }
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i] === originalLines[i]) continue;
+    view.editor.replaceRange(
+      lines[i],
+      { line: i, ch: 0 },
+      { line: i, ch: (originalLines[i] || "").length }
+    );
+  }
+},
+
+getEditorCheckboxEventLine(event, file) {
+  if (!(file instanceof TFile) || file.extension !== "md") return null;
+  const view = this.findOpenMarkdownView(file);
+  const editor = view?.editor;
+  if (!editor?.getValue) return null;
+
+  const target = event.target instanceof Element ? event.target : null;
+  const lineElement = target?.closest(".cm-line, .HyperMD-task-line");
+  const lineText = lineElement?.textContent || "";
+  const textLine = this.findTaskLineByRenderedText(editor, lineText, editor.getCursor?.()?.line);
+  if (Number.isInteger(textLine)) return textLine;
+
+  const posFromCoords = this.getEditorLineFromEventCoords(event, editor);
+  if (Number.isInteger(posFromCoords)) return posFromCoords;
+
+  const cursorLine = editor.getCursor?.()?.line;
+  return Number.isInteger(cursorLine) ? cursorLine : null;
+},
+
+findTaskLineByRenderedText(editor, renderedText, nearLine = null) {
+  const needle = this.normalizeTaskLineText(renderedText);
+  if (!needle) return null;
+  const lines = editor.getValue().split(/\r?\n/);
+  const matches = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (this.normalizeTaskLineText(lines[i]) === needle) matches.push(i);
+  }
+  if (matches.length === 0) return null;
+  if (!Number.isInteger(nearLine)) return matches[0];
+  return matches.reduce((best, line) => (
+    Math.abs(line - nearLine) < Math.abs(best - nearLine) ? line : best
+  ), matches[0]);
+},
+
+normalizeTaskLineText(text) {
+  const cleaned = String(text || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const taskMatch = cleaned.match(/^(?:[-*]\s+)?(?:\[[^\]]*\]\s*)?(.+)$/);
+  return (taskMatch?.[1] || "").replace(BLOCK_ID_RE, "").trim();
+},
+
+getEditorLineFromEventCoords(event, editor) {
+  const clientX = event?.clientX;
+  const clientY = event?.clientY;
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+  const cm = editor.cm;
+  const offset = cm?.posAtCoords?.({ x: clientX, y: clientY })
+    ?? cm?.posAtCoords?.({ left: clientX, top: clientY });
+  const lineNumber = Number.isInteger(offset) ? cm?.state?.doc?.lineAt(offset)?.number - 1 : null;
+  return Number.isInteger(lineNumber) ? lineNumber : null;
+},
+
+taskLineHasSubtasks(lines, lineNumber) {
+  const taskMatch = lines[lineNumber]?.match(TASK_LINE_RE);
+  if (!taskMatch) return false;
+  const parentIndent = this.getIndentLevel(taskMatch[1] || "");
+  for (let i = lineNumber + 1; i < lines.length; i++) {
+    const match = lines[i].match(TASK_LINE_RE);
+    if (!match) continue;
+    const indent = this.getIndentLevel(match[1] || "");
+    if (indent <= parentIndent) return false;
+    return true;
+  }
+  return false;
+},
+
+rememberActiveEditorTaskTouched(file, line = null) {
+  if (!(file instanceof TFile) || file.extension !== "md") return;
+  const view = this.findOpenMarkdownView(file);
+  const touchedLine = Number.isInteger(line) ? line : view?.editor?.getCursor?.()?.line;
+  if (!Number.isInteger(touchedLine)) return;
+  const raw = view.editor.getLine?.(touchedLine) || "";
   const taskMatch = raw.match(TASK_LINE_RE);
   if (!taskMatch) return;
   const rawText = taskMatch[3].trim();
   this.rememberTaskTouched({
     file,
-    line,
+    line: touchedLine,
     raw,
     blockId: rawText.match(BLOCK_ID_RE)?.[1] || "",
     text: rawText.replace(BLOCK_ID_RE, "").trim()

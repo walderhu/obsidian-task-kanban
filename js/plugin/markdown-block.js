@@ -62,9 +62,7 @@ buildKanbanBlock(file, tasks) {
   const columns = STATUSES.map((status) => {
     const items = sortedTasks.filter((task) => task.status.key === status.key);
     const marker = "<span class=\"task-kanban-inline-marker\"></span>";
-    const content = items.length
-      ? items.map((task) => this.formatKanbanCellItem(task)).join("")
-      : "<span class=\"task-kanban-inline-empty\">Пусто</span>";
+    const content = "<span class=\"task-kanban-inline-empty\">Пусто</span>";
     const body = `${marker}<div class="task-kanban-inline-column" data-status-key="${this.escapeAttribute(status.key)}">${content}</div>`;
     return {
       title: `${status.icon} ${status.title} (${items.length})`,
