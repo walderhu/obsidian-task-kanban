@@ -31,7 +31,15 @@ async onload() {
   this.addCommand({
     id: "cycle-editor-task-checkbox",
     name: "Cycle task checkbox under cursor",
-    editorCallback: (editor) => this.cycleEditorTaskCheckbox(editor)
+    editorCheckCallback: (checking, editor) => {
+      const from = editor.getCursor("from");
+      const to = editor.getCursor("to");
+      const startLine = Math.min(from.line, to.line);
+      const endLine = Math.max(from.line, to.line);
+      if (this.selectionOverlapsFencedCodeBlock(editor, startLine, endLine)) return false;
+      if (!checking) this.cycleEditorTaskCheckbox(editor);
+      return true;
+    }
   });
 
   this.registerMarkdownPostProcessor(async (element, context) => {

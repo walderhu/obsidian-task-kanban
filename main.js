@@ -260,7 +260,15 @@
       this.addCommand({
         id: "cycle-editor-task-checkbox",
         name: "Cycle task checkbox under cursor",
-        editorCallback: (editor) => this.cycleEditorTaskCheckbox(editor)
+        editorCheckCallback: (checking, editor) => {
+          const from = editor.getCursor("from");
+          const to = editor.getCursor("to");
+          const startLine = Math.min(from.line, to.line);
+          const endLine = Math.max(from.line, to.line);
+          if (this.selectionOverlapsFencedCodeBlock(editor, startLine, endLine)) return false;
+          if (!checking) this.cycleEditorTaskCheckbox(editor);
+          return true;
+        }
       });
     
       this.registerMarkdownPostProcessor(async (element, context) => {
@@ -1582,7 +1590,7 @@
       menu.style.removeProperty("--task-kanban-menu-top");
       menu.style.removeProperty("--task-kanban-menu-width");
     },
-
+    
     positionInlineFloatingMenu(toggle, menu) {
       if (!toggle || !menu) return;
       const rect = toggle.getBoundingClientRect();
@@ -1593,18 +1601,18 @@
       const preferredWidth = Math.min(menu.classList.contains("task-kanban-inline-filter-menu") ? 360 : 220, maxWidth);
       const left = Math.max(16, Math.min(rect.right - preferredWidth, viewportWidth - preferredWidth - 16));
       let top = rect.bottom + gap;
-
+    
       const availableBelow = viewportHeight - top - 16;
       const menuHeight = Math.min(menu.scrollHeight || 260, 260);
       if (availableBelow < Math.min(menuHeight, 120) && rect.top > menuHeight + gap) {
         top = rect.top - menuHeight - gap;
       }
-
+    
       menu.style.setProperty("--task-kanban-menu-left", `${Math.round(left)}px`);
       menu.style.setProperty("--task-kanban-menu-top", `${Math.round(Math.max(16, top))}px`);
       menu.style.setProperty("--task-kanban-menu-width", `${Math.round(preferredWidth)}px`);
     },
-
+    
     setAllInlineSubtasksExpanded(element, expand) {
       for (const card of element.querySelectorAll(".task-kanban-inline-card, .task-kanban-inline-subtask")) {
         if (!card.querySelector(":scope > .task-kanban-inline-subtasks")) continue;
@@ -2432,6 +2440,7 @@
       const to = editor.getCursor("to");
       const startLine = Math.min(from.line, to.line);
       const endLine = Math.max(from.line, to.line);
+      if (this.selectionOverlapsFencedCodeBlock(editor, startLine, endLine)) return;
       const isSingleLine = startLine === endLine;
       const cursor = editor.getCursor();
       let nextCursor = null;
@@ -2455,6 +2464,19 @@
       } else if (!isSingleLine && editor.setSelection) {
         editor.setSelection(from, to);
       }
+    },
+    
+    selectionOverlapsFencedCodeBlock(editor, startLine, endLine) {
+      let insideFence = false;
+      for (let lineNumber = 0; lineNumber <= endLine; lineNumber++) {
+        const line = editor.getLine(lineNumber) || "";
+        if (lineNumber >= startLine && insideFence) return true;
+        if (/^\s*(?:```|~~~)/.test(line)) {
+          if (lineNumber >= startLine) return true;
+          insideFence = !insideFence;
+        }
+      }
+      return false;
     },
     
     cycleTaskCheckboxLine(line) {

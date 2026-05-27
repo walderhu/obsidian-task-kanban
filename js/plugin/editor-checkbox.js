@@ -5,6 +5,7 @@ cycleEditorTaskCheckbox(editor) {
   const to = editor.getCursor("to");
   const startLine = Math.min(from.line, to.line);
   const endLine = Math.max(from.line, to.line);
+  if (this.selectionOverlapsFencedCodeBlock(editor, startLine, endLine)) return;
   const isSingleLine = startLine === endLine;
   const cursor = editor.getCursor();
   let nextCursor = null;
@@ -28,6 +29,19 @@ cycleEditorTaskCheckbox(editor) {
   } else if (!isSingleLine && editor.setSelection) {
     editor.setSelection(from, to);
   }
+},
+
+selectionOverlapsFencedCodeBlock(editor, startLine, endLine) {
+  let insideFence = false;
+  for (let lineNumber = 0; lineNumber <= endLine; lineNumber++) {
+    const line = editor.getLine(lineNumber) || "";
+    if (lineNumber >= startLine && insideFence) return true;
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      if (lineNumber >= startLine) return true;
+      insideFence = !insideFence;
+    }
+  }
+  return false;
 },
 
 cycleTaskCheckboxLine(line) {
